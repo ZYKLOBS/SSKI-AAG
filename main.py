@@ -17,11 +17,7 @@ app.add_middleware(
 # Serve static files (e.g., index.html)
 app.mount("/.", StaticFiles(directory="/."), name="static")
 
-llm = Claude(source_text="""The Embodiment of Scarlet Devil's gameplay holds various fundamental similarities to that of the PC-98 titles and "Seihou", but differs in the introduction of Spell Cards. The pacing has also been changed significantly, but retains some of the PC-98 titles' fast pacing, giving the Embodiment of Scarlet Devil a reputation for having a heightened difficulty compared to other Windows titles. These aspects were, for the post part, removed in "Perfect Cherry Blossom" and "Imperishable Night". A change retained from the PC-98 titles is the "Item Get" feature, which allows the player to collect all items on the screen by moving to the top of the screen, if at full power. This mechanic was retained in all later games.
-
-the Embodiment of Scarlet Devil features two playable characters to choose from with two equipment types each; Reimu Hakurei can cover a wide area of the screen with weaker attacks, while Marisa Kirisame relies on speed and power to make up for a thinner attack spread. Each character and type has its own spell card as well.
-
-Among the Embodiment of Scarlet Devil's similarities to the PC-98 titles is the game containing six stages in total; however, the player is prevented from continuing to Stage 6 from Stage 5 if playing on Easy difficulty. """)
+llm = Claude(source_text="""test """)
 
 class TextRequest(BaseModel):
     text: str

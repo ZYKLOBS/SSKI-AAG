@@ -1,9 +1,12 @@
 from importlib.util import source_hash
 
 import anthropic
+import os
 
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import OllamaLLM
 #THIS IS THE API KEY IT SHOULD NOT BE PUSHED UNDER ANY CIRCUMSTANCES YOU SHOULD USE ENVIRONMENT VARIABLES INSTEAD!
-client = anthropic.Anthropic()#api_key='***')
+client = anthropic.Anthropic(api_key=os.getenv("claude_key"))
 
 class Claude:
     #Temperature is set to 0 for deterministic results, set to higher value for non-deterministic
@@ -53,4 +56,25 @@ class Claude:
     def send_message_debug(self, question: str):
         print("Source Text:\n" + self.source_text + '\n' + '-'*50)
         return 'This is the answer to the question'
+
+class Ollama:
+    def __init__(self, model:str = "llama3.1", source_text=''):
+        self.model = OllamaLLM(model=model)
+        if source_text == '':
+            raise ValueError("Base Text may not be empty")
+        self.source_text = source_text
+
+    template = ("You are an AI assistant that answers questions based on the provided source text. "
+                  "Your responses should be accurate, concise, and directly relevant to the question."
+                  "Use only the information in the source text to answer.\n\n"
+                  "Source Text:\n{source_text}\n\n"
+                  "Question:\n{question}\n\n"
+                  "Answer:")
+
+    def invoke(self, user_prompt: str):
+        prompt_template: ChatPromptTemplate = ChatPromptTemplate.from_template(self.template)
+        prompt: str = prompt_template.format(source_text=self.source_text, question=user_prompt)
+        answer: str = self.model.invoke(prompt)
+        print(f'prompt: {prompt}')
+        return answer
 
