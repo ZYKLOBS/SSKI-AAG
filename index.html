@@ -3,34 +3,118 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LLM Integration</title>
+  <title>SSKI-AAG</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
-    textarea { width: 100%; height: 100px; margin-bottom: 10px; }
-    button { padding: 10px 20px; }
+    .question-block { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px; }
+    .textarea-container { flex: 1; }
+    textarea, input { width: 100%; padding: 10px; }
+    textarea { height: 100px; }
+    input { height: 120px; } /* Adjust the height of the source text input */
+    button { padding: 10px 20px; margin-right: 10px; }
+    #healSoulImage { display: none; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <h1>LLM Text Interaction</h1>
-  <textarea id="inputField" placeholder="Enter your text here"></textarea>
+  <h1>SSKI-AAG</h1>
+
+  <label for="sourceField">Source Text:</label>
+  <textarea id="sourceField" placeholder="Enter source text here"></textarea>
+
+  <button onclick="setSourceText()">Set Source Text</button> <!-- New button to set source text -->
+
+  <div id="questionContainer">
+    <div class="question-block" id="question1">
+      <div class="textarea-container">
+        <label for="question1Field">Question 1:</label>
+        <textarea id="question1Field" placeholder="Enter your question here"></textarea>
+      </div>
+      <div class="textarea-container">
+        <label for="response1Field">Response to Question 1:</label>
+        <textarea id="response1Field" placeholder="Response will appear here" readonly></textarea>
+      </div>
+    </div>
+  </div>
+
+  <button onclick="addQuestion()">+</button>
   <button onclick="sendToLLM()">Send</button>
-  <textarea id="outputField" placeholder="Response will appear here" readonly></textarea>
+  <!---<button onclick="healSoul()">Heal Soul</button> -->
+
+  <img id="healSoulImage" src="/static/borgar.jpeg" alt="No salvation for you">
 
   <script>
+    let questionCount = 1;
+
+    function addQuestion() {
+      questionCount++;
+      const questionContainer = document.getElementById('questionContainer');
+      const questionBlock = document.createElement('div');
+      questionBlock.className = 'question-block';
+      questionBlock.id = `question${questionCount}`;
+
+      questionBlock.innerHTML = `
+        <div class="textarea-container">
+          <label for="question${questionCount}Field">Question ${questionCount}:</label>
+          <textarea id="question${questionCount}Field" placeholder="Enter your question here"></textarea>
+        </div>
+        <div class="textarea-container">
+          <label for="response${questionCount}Field">Response to Question ${questionCount}:</label>
+          <textarea id="response${questionCount}Field" placeholder="Response will appear here" readonly></textarea>
+        </div>
+      `;
+      questionContainer.appendChild(questionBlock);
+    }
+
     async function sendToLLM() {
-      const input = document.getElementById('inputField').value;
-      const responseField = document.getElementById('outputField');
-      
+      const sourceText = document.getElementById('sourceField').value;
+
+      for (let i = 1; i <= questionCount; i++) {
+        const question = document.getElementById(`question${i}Field`).value;
+        const responseField = document.getElementById(`response${i}Field`);
+
+        try {
+          const response = await fetch('http://127.0.0.1:8000/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: question })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Request failed with status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          responseField.value = data.response;
+        } catch (error) {
+          responseField.value = 'Error: ' + error.message;
+          console.error(error);  // Log the error in the console for debugging
+        }
+      }
+    }
+
+    function healSoul() {
+      const image = document.getElementById('healSoulImage');
+      image.style.display = 'block'; // Makes the image visible when the button is clicked
+    }
+
+    async function setSourceText() {
+      const sourceText = document.getElementById('sourceField').value;
+
       try {
-        const response = await fetch('http://127.0.0.1:8000/process', {
+        const response = await fetch('http://127.0.0.1:8000/set_source_text', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: input })
+          body: JSON.stringify({ new_text: sourceText })
         });
-        const data = await response.json();
-        responseField.value = data.response;
+
+        if (response.ok) {
+          const data = await response.json();
+          alert(data.message);  // Show a success message when source text is set
+        } else {
+          alert('Error setting source text');
+        }
       } catch (error) {
-        responseField.value = 'Error: ' + error.message;
+        alert('Error: ' + error.message);
       }
     }
   </script>

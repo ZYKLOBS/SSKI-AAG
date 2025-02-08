@@ -1,4 +1,4 @@
-from LLM import Ollama
+from Ollama import Ollama
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse
 import uvicorn
 
 app = FastAPI()
+
+# CORS middleware allows the frontend to communicate with the backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Update with your frontend URL in production
@@ -15,27 +17,38 @@ app.add_middleware(
 )
 
 # Serve static files (e.g., index.html)
-app.mount("/.", StaticFiles(directory="/.", html=True), name="static")
+app.mount("/static", StaticFiles(directory="."), name="static")
 
-llm = Ollama(source_text="""The Embodiment of Scarlet Devil's gameplay holds various fundamental similarities to that of the PC-98 titles and "Seihou", but differs in the introduction of Spell Cards. The pacing has also been changed significantly, but retains some of the PC-98 titles' fast pacing, giving the Embodiment of Scarlet Devil a reputation for having a heightened difficulty compared to other Windows titles. These aspects were, for the post part, removed in "Perfect Cherry Blossom" and "Imperishable Night". A change retained from the PC-98 titles is the "Item Get" feature, which allows the player to collect all items on the screen by moving to the top of the screen, if at full power. This mechanic was retained in all later games.
-
-the Embodiment of Scarlet Devil features two playable characters to choose from with two equipment types each; Reimu Hakurei can cover a wide area of the screen with weaker attacks, while Marisa Kirisame relies on speed and power to make up for a thinner attack spread. Each character and type has its own spell card as well.
-
-Among the Embodiment of Scarlet Devil's similarities to the PC-98 titles is the game containing six stages in total; however, the player is prevented from continuing to Stage 6 from Stage 5 if playing on Easy difficulty. """)
+# Initialize the Ollama LLM with default source text
+llm = Ollama()
 
 class TextRequest(BaseModel):
     text: str
 
+class SourceTextRequest(BaseModel):
+    new_text: str  # New source text to set
+
+# Serve the index.html page when the user accesses the root path
 @app.get("/")
 async def get_index():
     return FileResponse("./index.html")
 
+# Endpoint to process the text input and return a response
 @app.post("/process")
 async def process_text(request: TextRequest):
-    print(f"Received request: {request.text}")
-    response = llm.invoke(request.text)
-    print(f"Response from LLM: {response}")  # Log the response for debugging
+    print(f"Received request: {request.text}")  # Log question
+    print(f"Using source text: {llm.source_text}")  # Log the source text being used
+    response = llm.invoke(request.text)  # Get the response from LLM
+    print(f"Response from LLM: {response}")  # Log response
     return {"response": response}
+
+
+# Endpoint to update the source text dynamically
+@app.post("/set_source_text")
+async def set_source_text(request: SourceTextRequest):
+    print(f"Setting new source text: {request.new_text}")
+    llm.set_source_text(request.new_text)  # Set the new source text for the model
+    return {"message": "Source text updated successfully."}
 
 
 if __name__ == "__main__":
