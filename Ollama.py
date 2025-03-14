@@ -24,3 +24,6 @@ class Ollama:
         print(f'prompt: {prompt}')
         return answer
 
+if __name__ == "__main__":
+    # Run the FastAPI app with uvicorn when the script is executed
+    uvicorn.run("main_ollama:app", host="127.0.0.1", port=8000, reload=True)
