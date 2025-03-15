@@ -1,59 +1,95 @@
-from Claude import Claude
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import uvicorn
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+
+from databaseHelper.utility import engine, get_db, Base
+from models.llm import *
+from models.project import *
+from databaseHelper.llm_insert import insert_llms, llm_names
 
 app = FastAPI()
-#TODO: Fragenkatalog aus Excel datei laden, extra prompt for template string -> specify things for questions -> hint fuer fragen um antwort in richtige richtung,
-#TODO: Char limit -> erstmal char counter fuer convenience/debug
-#TODO: Antwort neu generieren, Fragen loeschen, Fragen speichern -> EXCEL??? -> ja
-#TODO: API Key und Model auswaehlen oben
 
-# CORS middleware allows the frontend to communicate with the backend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Update with your frontend URL in production
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve static files (e.g., index.html)
-app.mount("/static", StaticFiles(directory="."), name="static")
-
-# Initialize the Claude LLM with default source text
-llm = Claude()
-class TextRequest(BaseModel):
-    text: str
-
-class SourceTextRequest(BaseModel):
-    new_text: str  # New source text to set
-
-# Serve the index.html page when the user accesses the root path
-@app.get("/")
-async def get_index():
-    return FileResponse("./index.html")
-
-# Endpoint to process the text input and return a response
-@app.post("/process")
-async def process_text(request: TextRequest):
-    print(f"Received request: {request.text}")  # Log question
-    print(f"Using source text: {llm.source_text}")  # Log the source text being used
-    response = llm.invoke(request.text)  # Get the response from LLM
-    print(f'response: {response}')
-    return {"response": response}
+Base.metadata.create_all(bind=engine)
 
 
-# Endpoint to update the source text dynamically
-@app.post("/set_source_text")
-async def set_source_text(request: SourceTextRequest):
-    print(f"Setting new source text: {request.new_text}")
-    llm.set_source_text(request.new_text)  # Set the new source text for the model
-    return {"message": "Source text updated successfully."}
+#Project methods
 
+
+#Create project
+@app.post("/projects/", response_model=ProjectResponse)
+def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
+    if project.llm_id is None:
+        print(f"Error: llm_ID may not be None")
+        project.llm_id = 1
+    if project.llm_id not in range(0+1, len(llm_names)+1): #possibly hardcode values based on llm_names list, increment by 1 since 0 is never primary key for id in LLM Table (sqlite convention)
+        print(f"Error: llm_ID outside of range of possible IDs")
+        project.llm_id = 1
+    db_project = Project(name=project.name, source_text=project.source_text, llm_id=project.llm_id)
+    db.add(db_project)
+    db.commit()
+    db.refresh(db_project)
+    return db_project
+
+#Update projects
+@app.post("/projects/{project_id}", response_model=ProjectResponse)
+def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db)):
+    db_project = db.query(Project).filter(Project.id == project_id).first()
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    db_project.name = project.name if project.name is not None else db_project.name
+    db_project.source_text = project.source_text if project.source_text is not None else db_project.source_text
+    db_project.llm_id = project.llm_id if project.llm_id is not None else db_project.llm_id
+
+    db.commit()
+    db.refresh(db_project)
+    return db_project
+
+@app.get("/projects/", response_model=List[ProjectResponse])
+def read_projects(skip: int = 0, limit: int=100, db: Session = Depends(get_db)):
+    """
+    :param skip: How many records to skip
+    :param limit: How many records to return at most
+    :param db:
+    :return:
+    """
+    projects = db.query(Project).offset(skip).limit(limit).all()
+    return projects
+
+@app.get("/projects/{project_id}", response_model=ProjectResponse)
+def read_project(project_id: int, db: Session = Depends(get_db)):
+    """Returns single distinct project based on id
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+@app.delete("/projects/{project_id}", response_model=ProjectResponse)
+def delete_project(project_id: int, db: Session = Depends(get_db)):
+    db_project = db.query(Project).filter(Project.id == project_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db.delete(db_project)
+    db.commit()
+    return db_project
+
+#LLM Methods
+@app.get("/llms/", response_model=List[LlmResponse])
+def read_llms(skip: int = 0, limit: int=100, db: Session = Depends(get_db)):
+    """
+    :param skip: How many records to skip
+    :param limit: How many records to return at most
+    :param db:
+    :return:
+    """
+    llms = db.query(LLM).offset(skip).limit(limit).all()
+    return llms
+
+#Question Methods
 
 if __name__ == "__main__":
-    # Run the FastAPI app with uvicorn when the script is executed
+    insert_llms()
+    import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
