@@ -11,7 +11,10 @@ class Project(Base):
     name = Column(String, index=True, unique=True)
     source_text = Column(String, index=True)
     llm_id = Column(Integer, ForeignKey("LLM.id"))
+
+    #Relations to other tables
     llm = relationship("LLM", back_populates="projects")
+    questions = relationship("Question", back_populates="project", cascade="all, delete-orphan")
 
 # Pydantic Schemas
 class ProjectCreate(BaseModel):
