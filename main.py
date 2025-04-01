@@ -6,6 +6,8 @@ from fastapi.responses import FileResponse
 
 from fastapi import Form
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 
 from sqlalchemy.orm import Session
 from typing import List
@@ -20,10 +22,21 @@ app = FastAPI()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+templates = Jinja2Templates(directory="templates")
+
 Base.metadata.create_all(bind=engine)
 
 class ProjectRequest(BaseModel):
     project_id: int
+
+
+current_id = 1
+
+def get_current_project(db: Session):
+    global current_id  # If using this, keep it global, but better to pass dynamically
+    current_project = db.query(Project).filter(Project.id == current_id).first()
+    return current_project
+
 
 
 # Serve homepage index file
@@ -50,6 +63,10 @@ def update_project(project_id: int, project: ProjectUpdate, db: Session = Depend
 
 
 #Project methods
+@app.get("/Jinja-debug/", response_class=HTMLResponse)
+def get_jinja_body_debug(request: Request, db: Session = Depends(get_db)):
+    current_project = get_current_project(db)
+    return templates.TemplateResponse("main_template.html", {"request": request, "project": current_project})
 
 @app.post("/projects/", response_model=ProjectResponse)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
@@ -73,17 +90,69 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     db.refresh(db_project)
     return db_project
 
+@app.post("/projects/", response_model=ProjectResponse)
+def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
+    if project.llm_id is None:
+        print(f"Error: llm_ID may not be None")
+        project.llm_id = 1
+    if project.llm_id not in range(0+1, len(llm_names)+1):  # Validate LLM ID range
+        print(f"Error: llm_ID outside of range of possible IDs")
+        project.llm_id = 1
 
-@app.post("/load_project/", response_class=HTMLResponse)
+    db_project = Project(
+        name=project.name,
+        source_text=project.source_text,
+        llm_id=project.llm_id,
+        api_key=project.api_key,
+        prompt_template=project.prompt_template,
+        default_max_words=project.default_max_words
+    )
+    db.add(db_project)
+    db.commit()
+    db.refresh(db_project)
+    return db_project
+
+@app.post("/projects-button/", response_class=HTMLResponse)
+def create_project_button(name: str = Form(...), db: Session = Depends(get_db)):
+    if not name.strip():
+        return {"error": "Project name cannot be empty"}
+
+    db_project = Project(name=name, source_text="sauce", llm_id=1, api_key="sk-3xampl3", prompt_template="Default", default_max_words=100)
+    db.add(db_project)
+    db.commit()
+    db.refresh(db_project)
+    return f"Create"
+
+
+@app.post("/load-project/", response_class=HTMLResponse)
 async def load_project_by_id(project_id: str = Form(...), db: Session = Depends(get_db)):
     #Get project
+    global current_id
+    current_id = project_id
+
     project = db.query(Project).filter(Project.id == project_id).first()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-
+    print(current_id)
     return project.source_text
 
+
+
 @app.post("/projects/{project_id}", response_model=ProjectResponse)
+def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db)):
+    db_project = db.query(Project).filter(Project.id == project_id).first()
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    db_project.name = project.name if project.name is not None else db_project.name
+    db_project.source_text = project.source_text if project.source_text is not None else db_project.source_text
+    db_project.llm_id = project.llm_id if project.llm_id is not None else db_project.llm_id
+
+    db.commit()
+    db.refresh(db_project)
+    return db_project
+
+#Do at home where you have the current id or a project given, same for safe function
+@app.post("/projects-rename/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db)):
     db_project = db.query(Project).filter(Project.id == project_id).first()
     if db_project is None:
