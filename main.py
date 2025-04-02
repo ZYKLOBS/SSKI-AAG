@@ -112,7 +112,7 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     db.refresh(db_project)
     return db_project
 
-@app.post("/projects-button/", response_class=HTMLResponse)
+@app.post("/projects-create-button/", response_class=HTMLResponse)
 def create_project_button(name: str = Form(...), db: Session = Depends(get_db)):
     if not name.strip():
         return {"error": "Project name cannot be empty"}
@@ -122,6 +122,29 @@ def create_project_button(name: str = Form(...), db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_project)
     return f"Create"
+
+@app.post("/projects-rename-button/", response_class=HTMLResponse)
+def rename_project_button(rename: str = Form(...), db: Session = Depends(get_db)):
+    if not rename.strip():
+        return {"error": "Project name cannot be empty"}
+
+    db_project = db.query(Project).filter(Project.id == current_id).first()
+    db_project.name = rename if rename is not None else db_project.name
+    db.commit()
+    db.refresh(db_project)
+    return f"Create"
+
+@app.post("/projects-delete-button/", response_class=HTMLResponse)
+def delete_project_button(db: Session = Depends(get_db)):
+    db_project = db.query(Project).filter(Project.id == current_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db.delete(db_project)
+    db.commit()
+    return HTMLResponse("", status_code=204)
+
 
 
 @app.post("/load-project/", response_class=HTMLResponse)
