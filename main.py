@@ -40,9 +40,9 @@ def get_current_project(db: Session):
 
 
 # Serve homepage index file
-@app.get("/", response_class=FileResponse)
-async def read_root():
-    return FileResponse(os.path.join(os.getcwd(), "new_index.html"))
+@app.get("/", response_class=HTMLResponse)
+async def read_main(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse("main_template.html", {"request": request, "project": get_current_project(db)})
 
 @app.post("/projects/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db)):
@@ -61,6 +61,29 @@ def update_project(project_id: int, project: ProjectUpdate, db: Session = Depend
     db.refresh(db_project)
     return db_project
 
+
+
+class ProjectData(BaseModel):
+    source_text: str
+    prompt_template: str
+    api_key: str
+
+@app.post("/save-project-button/")
+async def save_project(project_data: ProjectData):
+    # Your logic to save the project data
+    print(f"Saving Project with source_text: {project_data.source_text}, "
+          f"prompt_template: {project_data.prompt_template}, api_key: {project_data.api_key}")
+
+    return {"message": "Project saved successfully!"}
+
+
+@app.get("/add_question", response_class=HTMLResponse)
+async def add_question(request: Request, db: Session = Depends(get_db)):
+    # Generate a unique id for the question block
+    db_project = db.query(Project).filter(Project.id == get_current_project(db).id).first()
+    if db_project:
+        question_id = 1 +  len(db_project.questions)
+    return templates.TemplateResponse("question_block.html", {"request": request, "question_id": question_id})
 
 #Project methods
 @app.get("/Jinja-debug/", response_class=HTMLResponse)
