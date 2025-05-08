@@ -165,6 +165,15 @@
                         <button hx-get="/add_question" hx-target="#questions-container" hx-swap="beforeend" type="button" class="btn btn-success btn-lg">
                             +
                         </button>
+                        <button type="button"
+                                class="btn btn-primary ms-3"
+                                hx-post="/generate-answers/"
+                                hx-trigger="click"
+                                hx-target="this"
+                                hx-include="#save-form"
+                                hx-swap="none">
+                            Generate Answers
+                        </button>
                     </div>
                 </div>
         </form>

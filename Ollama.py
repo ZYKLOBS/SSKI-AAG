@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import OllamaLLM
 
 class Ollama:
-    def __init__(self, model:str = "deepseek-r1:7b", source_text=''):
+    def __init__(self, model:str = "gemma3", source_text=''):
         self.model = OllamaLLM(model=model)
         self.source_text = source_text
 

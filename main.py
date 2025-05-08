@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 
+
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -18,7 +19,15 @@ from models.project import *
 from models.question import *
 from databaseHelper.llm_insert import insert_llms, llm_names
 
+from starlette.middleware.sessions import SessionMiddleware
+
+#Change this later
+from Ollama import Ollama
+llm = Ollama()
+
 app = FastAPI()
+
+app.add_middleware(SessionMiddleware, secret_key="OBYpXGoIU2be36OktQKxlhauO0aIpr5R")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -37,12 +46,18 @@ def get_current_project(db: Session):
     current_project = db.query(Project).filter(Project.id == current_id).first()
     return current_project
 
+def get_all_projects(db: Session):
+    return db.query(Project).all()
+
+def get_all_questions(db: Session):
+    return db.query(Question).all()
+
 
 
 # Serve homepage index file
 @app.get("/", response_class=HTMLResponse)
 async def read_main(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("main_template.html", {"request": request, "project": get_current_project(db)})
+    return templates.TemplateResponse("main_template.html", {"request": request, "project": get_current_project(db), "projects": get_all_projects(db), "questions":  get_all_questions(db)})
 
 @app.post("/projects/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db)):
@@ -68,22 +83,111 @@ class ProjectData(BaseModel):
     prompt_template: str
     api_key: str
 
+
+
+#TODO There is a bug, if you add a new question/answer pair and then press save, then the values are not saved
+#TODO There is a bug where the projects values aren't loaded initially when first visiting the page
+
+@app.post("/generate-answers/")
+async def generate_answers(
+        request: Request,
+        db: Session = Depends(get_db)
+):
+    global current_id
+
+    form = await request.form()
+    print("Form data:", form)  # Debugging line
+
+    project = get_current_project(db)
+    project.source_text = form.get('source_text')
+    project.prompt_template = form.get('prompt_template')
+    project.api_key = form.get('api_key')
+    projects = get_all_projects(db)
+
+    # Update questions
+    index = 0
+    questions = db.query(Question).filter(Question.project_id == current_id).all()
+
+    llm.set_source_text(project.source_text)
+
+    for question in questions:
+        print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}")
+
+    while True:
+        print(f"loop {index}")
+        q_question_id = form.get(f'questions[{index}][id]')
+        q_question = form.get(f'questions[{index}][question]')
+        q_answer = form.get(f'questions[{index}][answer]')
+        q_proj_id = form.get(f'questions[{index}][project_id]')
+        print(f"\tq_id: {q_question_id}\n\tq_question: {q_question}\n\tq_answer: {q_answer}\n\tq_proj_id: {q_proj_id}")
+        if q_question_id is None:
+            break  # no more questions
+        question = db.query(Question).filter_by(id=q_question_id, project_id=project.id).first()
+        if question:
+            question.question = q_question
+            print(f"Question to generate answer from: {q_question}")
+            question.answer = llm.invoke(q_question)
+            print(f"Generated answer: {question.answer}")
+
+        index += 1
+
+    db.commit()
+
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": project,
+            "projects": projects
+        }
+    )
+
+
+
 @app.post("/save-project-button/")
-async def save_project(project_data: ProjectData):
-    # Your logic to save the project data
-    print(f"Saving Project with source_text: {project_data.source_text}, "
-          f"prompt_template: {project_data.prompt_template}, api_key: {project_data.api_key}")
+async def save_project_button(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    print("Form data:", form)  # Debugging line
 
-    return {"message": "Project saved successfully!"}
+    project = get_current_project(db)
+    project.source_text = form.get('source_text')
+    project.prompt_template = form.get('prompt_template')
+    project.api_key = form.get('api_key')
 
+    # Update questions
+    index = 0
+    questions = db.query(Question).filter(Question.project_id == current_id).all()
+    for question in questions:
+        print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}")
+    while True:
+        print(f"loop {index}")
+        q_question_id = form.get(f'questions[{index}][id]')
+        q_question = form.get(f'questions[{index}][question]')
+        q_answer = form.get(f'questions[{index}][answer]')
+        q_proj_id = form.get(f'questions[{index}][project_id]')
+        print(f"\tq_id: {q_question_id}\n\tq_question: {q_question}\n\tq_answer: {q_answer}\n\tq_proj_id: {q_proj_id}")
+        if q_question_id is None:
+            break  # no more questions
+        question = db.query(Question).filter_by(id=q_question_id, project_id=project.id).first()
+        if question:
+            question.question = q_question
+            question.answer = q_answer
+
+        index += 1
+
+    db.commit()
+    return JSONResponse(status_code=200, content={"message": "Saved successfully!"})
 
 @app.get("/add_question", response_class=HTMLResponse)
 async def add_question(request: Request, db: Session = Depends(get_db)):
-    # Generate a unique id for the question block
-    db_project = db.query(Project).filter(Project.id == get_current_project(db).id).first()
-    if db_project:
-        question_id = 1 +  len(db_project.questions)
-    return templates.TemplateResponse("question_block.html", {"request": request, "question_id": question_id})
+    # Generate a new empty question with a unique index
+    new_question = Question(question="", answer="", project_id=current_id)
+    db.add(new_question)
+    db.commit()
+    db.refresh(new_question)
+
+    # Ensure the request is included in the template context
+    return templates.TemplateResponse("question_block.html", {"request": request, "question": new_question})
 
 #Project methods
 @app.get("/Jinja-debug/", response_class=HTMLResponse)
@@ -155,7 +259,7 @@ def rename_project_button(rename: str = Form(...), db: Session = Depends(get_db)
     db_project.name = rename if rename is not None else db_project.name
     db.commit()
     db.refresh(db_project)
-    return f"Create"
+    return f"Rename"
 
 @app.post("/projects-delete-button/", response_class=HTMLResponse)
 def delete_project_button(db: Session = Depends(get_db)):
@@ -169,19 +273,29 @@ def delete_project_button(db: Session = Depends(get_db)):
     return HTMLResponse("", status_code=204)
 
 
-
 @app.post("/load-project/", response_class=HTMLResponse)
-async def load_project_by_id(project_id: str = Form(...), db: Session = Depends(get_db)):
-    #Get project
+async def load_project_by_id(
+        request: Request,
+        project_id: str = Form(...),
+        db: Session = Depends(get_db)
+):
     global current_id
     current_id = project_id
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    print(current_id)
-    return project.source_text
 
+    projects = db.query(Project).all()  # Load all projects for the dropdown
+
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": project,
+            "projects": projects
+        }
+    )
 
 
 @app.post("/projects/{project_id}", response_model=ProjectResponse)
@@ -366,6 +480,7 @@ def delete_question(question_id: int, db: Session = Depends(get_db)):
     db.delete(db_question)
     db.commit()
     return db_question
+
 
 if __name__ == "__main__":
     insert_llms()
