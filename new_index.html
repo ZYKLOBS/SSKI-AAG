@@ -94,13 +94,13 @@
             <div class="col-auto">
                 <div class="d-flex align-items-center">
                     <label class="me-2 flex-shrink-0">Model</label>
-                    <select id="modelSelect" class="form-select" aria-label="Model Select"
-                        hx-get="/models-options/"
-                        hx-trigger="load"
-                        hx-target="#modelSelect"
-                        hx-swap="innerHTML">
-                        <option selected disabled>Loading...</option>
-                    </select>
+                        <select id="modelSelect" name="model" class="form-select" aria-label="Model Select"
+                                hx-get="/models-options/"
+                                hx-trigger="load"
+                                hx-target="#modelSelect"
+                                hx-swap="innerHTML">
+                            <option selected disabled>Loading...</option>
+                        </select>
                 </div>
             </div>
 

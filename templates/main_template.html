@@ -68,11 +68,7 @@
                     <button type="button" class="btn btn-info">Import</button>
                     <button type="button" class="btn btn-info">Export</button>
 
-                    <button id="save-button" type="button" class="btn btn-success"
-                            hx-post="/save-project-button/"
-                            hx-trigger="click"
-                            hx-target="this"
-                            hx-swap="none">
+                    <button id="save-button" type="button" class="btn btn-success">
                         Save
                     </button>
 
@@ -96,7 +92,7 @@
                 <div class="col-auto">
                     <div class="d-flex align-items-center">
                         <label class="me-2 flex-shrink-0">Model</label>
-                        <select id="modelSelect" class="form-select" aria-label="Model Select"
+                        <select id="modelSelect" name="model" class="form-select" aria-label="Model Select"
                                 hx-get="/models-options/"
                                 hx-trigger="load"
                                 hx-target="#modelSelect"
@@ -169,9 +165,9 @@
                                 class="btn btn-primary ms-3"
                                 hx-post="/generate-answers/"
                                 hx-trigger="click"
-                                hx-target="this"
+                                hx-target="#main_content"
                                 hx-include="#save-form"
-                                hx-swap="none">
+                                hx-swap="outerHTML">
                             Generate Answers
                         </button>
                     </div>

@@ -22,8 +22,8 @@ from databaseHelper.llm_insert import insert_llms, llm_names
 from starlette.middleware.sessions import SessionMiddleware
 
 #Change this later
-from Ollama import Ollama
-llm = Ollama()
+import Ollama
+import Claude
 
 app = FastAPI()
 
@@ -53,11 +53,31 @@ def get_all_questions(db: Session):
     return db.query(Question).all()
 
 
+def get_llm_by_id(db: Session, llm_id: int):
+    return db.query(LLM).filter(LLM.id == llm_id).first()
+
 
 # Serve homepage index file
 @app.get("/", response_class=HTMLResponse)
-async def read_main(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("main_template.html", {"request": request, "project": get_current_project(db), "projects": get_all_projects(db), "questions":  get_all_questions(db)})
+async def index(
+    request: Request,
+    project_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    projects = db.query(Project).all()
+
+    project = get_current_project(db)
+    if project_id:
+        project = db.query(Project).filter(Project.id == project_id).first()
+
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": project,
+            "projects": projects
+        }
+    )
 
 @app.post("/projects/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db)):
@@ -103,6 +123,15 @@ async def generate_answers(
     project.prompt_template = form.get('prompt_template')
     project.api_key = form.get('api_key')
     projects = get_all_projects(db)
+    model = form.get("model")
+    if int(model) == 1:
+        llm = Ollama.Ollama()
+
+    elif int(model) == 2:
+        llm = Claude.Claude()
+
+    else:
+        print("Something went wrong")
 
     # Update questions
     index = 0
@@ -111,7 +140,7 @@ async def generate_answers(
     llm.set_source_text(project.source_text)
 
     for question in questions:
-        print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}")
+        print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}, Model: {model}")
 
     while True:
         print(f"loop {index}")
@@ -132,6 +161,15 @@ async def generate_answers(
         index += 1
 
     db.commit()
+
+    project = get_current_project(db)
+    # Print the updated questions for debugging
+    print("\nUpdated Project Questions:")
+    for question in project.questions:
+        print(
+            f"Question ID: {question.id}, Question: {question.question}, Answer: {question.answer}, Project ID: {question.project_id}")
+
+    print(project.questions)
 
     return templates.TemplateResponse(
         "main_template.html",
