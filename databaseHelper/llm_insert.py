@@ -2,8 +2,9 @@ from sqlalchemy.orm import Session
 from models.llm import LLM
 from databaseHelper.utility import SessionLocal
 
-llm_names = ["ollama", "claude"]
+#llm_names = ["ollama", "claude"]
 
+llm_names = ["claude"]
 def insert_llms():
     db = SessionLocal()
     try:

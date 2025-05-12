@@ -5,8 +5,8 @@ from anthropic.types import TextBlock
 from dotenv import load_dotenv
 
 #THIS IS THE API KEY IT SHOULD NOT BE PUSHED UNDER ANY CIRCUMSTANCES YOU SHOULD USE ENVIRONMENT VARIABLES INSTEAD!
-load_dotenv()  # This will load the environment variables from the .env file
-client = anthropic.Anthropic(api_key=os.getenv("claude_key"))
+#load_dotenv()  # This will load the environment variables from the .env file
+#client = anthropic.Anthropic(api_key=os.getenv("claude_key"))
 
 class Claude:
     #Temperature is set to 0 for deterministic results, set to higher value for non-deterministic
@@ -28,15 +28,16 @@ class Claude:
 
         self.temperature = temperature
         self.max_tokens = max_tokens
-
-    def __send_message(self, question: str) -> str:
-        system = (f"You are an AI assistant that answers questions based on the provided source text. "
+        self.client = anthropic.Anthropic(api_key="No Value")
+    def __send_message(self, question: str, prompt_template: str) -> str:
+        system = (f"You are an AI assistant that answers questions based on the provided source text and a prompt_template given by the user. "
                   f"Your responses should be accurate, concise, and directly relevant to the question. "
                   f"Use only the information in the source text to answer.\n\n"
                   f"Source Text:\n{self.source_text}\n\n"
+                  f"Prompt Template:\n{prompt_template}\n\n"
                   f"Question:\n{question}\n\n"
                   f"Answer:")
-        message: TextBlock = client.messages.create(
+        message: TextBlock = self.client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=self.max_tokens,
             temperature=self.temperature,
@@ -56,5 +57,6 @@ class Claude:
     def set_source_text(self, new_source_text:str) -> None:
         self.source_text = new_source_text
 
-    def invoke(self, user_prompt: str) -> str:
-        return self.__send_message(question=user_prompt)
+    def invoke(self, user_prompt: str, prompt_template: str, api_key: str) -> str:
+        self.client = anthropic.Anthropic(api_key=api_key)
+        return self.__send_message(question=user_prompt, prompt_template=prompt_template)

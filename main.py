@@ -8,7 +8,8 @@ from fastapi import Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
-
+from fastapi.responses import RedirectResponse
+from fastapi.responses import Response
 
 from sqlalchemy.orm import Session
 from typing import List
@@ -34,12 +35,20 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 Base.metadata.create_all(bind=engine)
+current_id = 1
 
 class ProjectRequest(BaseModel):
     project_id: int
 
+def update_current_id(db: Session):
+    # Fetch the first project by ID (smallest ID)
+    current_project = db.query(Project).first()
 
-current_id = 1
+    if current_project:
+        current_id = current_project.id
+    else:
+        current_id = None  # If no project exists
+
 
 def get_current_project(db: Session):
     global current_id  # If using this, keep it global, but better to pass dynamically
@@ -65,10 +74,14 @@ async def index(
     db: Session = Depends(get_db)
 ):
     projects = db.query(Project).all()
-
+    global current_id
+    tmp_cur_id =  update_current_id(db)
+    if tmp_cur_id == None:
+        tmp_cur_id = 1
+    current_id = tmp_cur_id
     project = get_current_project(db)
     if project_id:
-        project = db.query(Project).filter(Project.id == project_id).first()
+        project = get_current_project(db)
 
     return templates.TemplateResponse(
         "main_template.html",
@@ -106,7 +119,6 @@ class ProjectData(BaseModel):
 
 
 #TODO There is a bug, if you add a new question/answer pair and then press save, then the values are not saved
-#TODO There is a bug where the projects values aren't loaded initially when first visiting the page
 
 @app.post("/generate-answers/")
 async def generate_answers(
@@ -155,7 +167,7 @@ async def generate_answers(
         if question:
             question.question = q_question
             print(f"Question to generate answer from: {q_question}")
-            question.answer = llm.invoke(q_question)
+            question.answer = llm.invoke(q_question, project.prompt_template, project.api_key)
             print(f"Generated answer: {question.answer}")
 
         index += 1
@@ -184,37 +196,58 @@ async def generate_answers(
 
 @app.post("/save-project-button/")
 async def save_project_button(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    print("Form data:", form)  # Debugging line
+    try:
+        form = await request.form()
+        print("Form data:", form)
 
-    project = get_current_project(db)
-    project.source_text = form.get('source_text')
-    project.prompt_template = form.get('prompt_template')
-    project.api_key = form.get('api_key')
+        project = get_current_project(db)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    # Update questions
-    index = 0
-    questions = db.query(Question).filter(Question.project_id == current_id).all()
-    for question in questions:
-        print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}")
-    while True:
-        print(f"loop {index}")
-        q_question_id = form.get(f'questions[{index}][id]')
-        q_question = form.get(f'questions[{index}][question]')
-        q_answer = form.get(f'questions[{index}][answer]')
-        q_proj_id = form.get(f'questions[{index}][project_id]')
-        print(f"\tq_id: {q_question_id}\n\tq_question: {q_question}\n\tq_answer: {q_answer}\n\tq_proj_id: {q_proj_id}")
-        if q_question_id is None:
-            break  # no more questions
-        question = db.query(Question).filter_by(id=q_question_id, project_id=project.id).first()
-        if question:
-            question.question = q_question
-            question.answer = q_answer
+        project.source_text = form.get('source_text')
+        project.prompt_template = form.get('prompt_template')
+        project.api_key = form.get('api_key')
 
-        index += 1
+        # Update questions
+        index = 0
+        questions = db.query(Question).filter(Question.project_id == current_id).all()
+        for question in questions:
+            print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}")
 
-    db.commit()
-    return JSONResponse(status_code=200, content={"message": "Saved successfully!"})
+        while True:
+            q_question_id = form.get(f'questions[{index}][id]')
+            q_question = form.get(f'questions[{index}][question]')
+            q_answer = form.get(f'questions[{index}][answer]')
+            q_proj_id = form.get(f'questions[{index}][project_id]')
+
+            if q_question is None:
+                break  # no more questions
+
+            if q_question_id:  # existing question
+                question = db.query(Question).filter_by(id=q_question_id, project_id=project.id).first()
+                if question:
+                    question.question = q_question
+                    question.answer = q_answer
+            else:  # new question
+                new_q = Question(
+                    question=q_question,
+                    answer=q_answer,
+                    project_id=project.id
+                )
+                db.add(new_q)
+
+            index += 1
+
+        db.commit()
+        return JSONResponse(status_code=200, content={"message": "Saved successfully!"})
+
+    except HTTPException as e:
+        raise e  # Let FastAPI handle HTTPExceptions as-is
+
+    except Exception as e:
+        # Log the error, then return a 500 response
+        print(f"Error while saving project: {e}")
+        return JSONResponse(status_code=500, content={"error": "An unexpected error occurred."})
 
 @app.get("/add_question", response_class=HTMLResponse)
 async def add_question(request: Request, db: Session = Depends(get_db)):
@@ -277,29 +310,63 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     db.refresh(db_project)
     return db_project
 
-@app.post("/projects-create-button/", response_class=HTMLResponse)
-def create_project_button(name: str = Form(...), db: Session = Depends(get_db)):
+@app.post("/projects-create-button/")
+def create_project_button(request: Request, name: str = Form(...), db: Session = Depends(get_db)):
     if not name.strip():
         return {"error": "Project name cannot be empty"}
 
-    db_project = Project(name=name, source_text="sauce", llm_id=1, api_key="sk-3xampl3", prompt_template="Default", default_max_words=100)
+    # Create new project
+    db_project = Project(
+        name=name,
+        source_text="sauce",
+        llm_id=1,
+        api_key="sk-3xampl3",
+        prompt_template="Default",
+        default_max_words=100
+    )
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
-    return f"Create"
+    projects = get_all_projects(db)
 
-@app.post("/projects-rename-button/", response_class=HTMLResponse)
-def rename_project_button(rename: str = Form(...), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": db_project,
+            "projects": projects
+        }
+    )
+
+@app.post("/projects-rename-button/")
+async def rename_project_button(request:Request, rename: str = Form(...), db: Session = Depends(get_db)):
+    global current_id
+    form = await request.form()
+    print("Form data:", form)  # Debugging line
+
+    rename = form.get('rename')
+
     if not rename.strip():
         return {"error": "Project name cannot be empty"}
 
-    db_project = db.query(Project).filter(Project.id == current_id).first()
+    print(rename)
+    db_project = get_current_project(db)
+    if db_project is None:
+        return {"error": f"No project found with id {current_id}"}
     db_project.name = rename if rename is not None else db_project.name
     db.commit()
-    db.refresh(db_project)
-    return f"Rename"
+    db_project = get_current_project(db)
+    projects = get_all_projects(db)
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": db_project,
+            "projects": projects
+        }
+    )
 
-@app.post("/projects-delete-button/", response_class=HTMLResponse)
+@app.post("/projects-delete-button/")
 def delete_project_button(db: Session = Depends(get_db)):
     db_project = db.query(Project).filter(Project.id == current_id).first()
 
@@ -308,7 +375,9 @@ def delete_project_button(db: Session = Depends(get_db)):
 
     db.delete(db_project)
     db.commit()
-    return HTMLResponse("", status_code=204)
+
+    # Force a full page reload using HTMX response header
+    return Response(status_code=200, headers={"HX-Refresh": "true"})
 
 
 @app.post("/load-project/", response_class=HTMLResponse)

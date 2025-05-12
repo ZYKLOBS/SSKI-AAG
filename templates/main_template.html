@@ -44,7 +44,9 @@
                     <button type="button" class="btn btn-primary"
                             hx-post="/projects-create-button/"
                             hx-trigger="click"
-                            hx-include="[name='name']">
+                            hx-include="[name='name']"
+                            hx-target="#main_content"
+                            hx-swap="outerHTML">
                         Create
                     </button>
 
@@ -54,7 +56,9 @@
                     <button type="button" class="btn btn-primary"
                             hx-post="/projects-rename-button/"
                             hx-trigger="click"
-                            hx-include="[name='rename']">
+                            hx-include="[name='rename']"
+                            hx-target="#main_content"
+                            hx-swap="outerHTML">
                         Rename
                     </button>
 
@@ -104,12 +108,11 @@
 
                 <!-- API KEY -->
                 <div class="col-auto">
-                    <div class="form-group">
-                        <label for="api-key" class="form-label">API-Key</label>
-                        <textarea id="api-key" name="api_key" class="form-control">{{ project.api_key if project else "" }}</textarea>
+                    <div class="d-flex align-items-center">
+                        <label for="api-key" class="me-2 flex-shrink-0">API-Key</label>
+                        <input type="password" id="api-key" name="api_key" class="form-control" value="{{ project.api_key if project else '' }}">
                     </div>
                 </div>
-            </div>
 
             <!-- Textareas -->
             <div class="container-fluid">
