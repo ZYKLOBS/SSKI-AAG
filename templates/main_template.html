@@ -15,6 +15,7 @@
         <form id="save-form"
               hx-post="/save-project-button/"
               hx-trigger="click from:#save-button"
+              hx-include="#save-form"
               hx-target="this"
               hx-swap="none">
             <div class="row align-items-center mb-5 mt-4">
@@ -174,6 +175,7 @@
                             Generate Answers
                         </button>
                     </div>
+                </div>
                 </div>
         </form>
     </div>
