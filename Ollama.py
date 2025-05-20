@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import OllamaLLM
 
 class Ollama:
-    def __init__(self, model:str = "deepseek-r1:7b", source_text=''):
+    def __init__(self, model:str = "llama3.1:latest", source_text=''):
         self.model = OllamaLLM(model=model)
         self.source_text = source_text
 
@@ -24,3 +24,6 @@ class Ollama:
         print(f'prompt: {prompt}')
         return answer
 
+if __name__ == "__main__":
+    # Run the FastAPI app with uvicorn when the script is executed
+    uvicorn.run("main_ollama:app", host="127.0.0.1", port=8000, reload=True)
