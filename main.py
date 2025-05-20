@@ -171,7 +171,11 @@ async def save_project_button(request: Request, db: Session = Depends(get_db)):
         form = await request.form()
         print("Form data:", form)
 
-        project = get_current_project(db)
+        project_id = form.get("project_id")
+        if not project_id:
+            raise HTTPException(status_code=400, detail="Missing project_id")
+
+        project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
@@ -179,33 +183,28 @@ async def save_project_button(request: Request, db: Session = Depends(get_db)):
         project.prompt_template = form.get('prompt_template')
         project.api_key = form.get('api_key')
 
-        # Update questions
+        # Handle questions
         index = 0
-        questions = db.query(Question).filter(Question.project_id == current_id).all()
-        for question in questions:
-            print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}")
-
         while True:
-            q_question_id = form.get(f'questions[{index}][id]')
+            q_id = form.get(f'questions[{index}][id]')
             q_question = form.get(f'questions[{index}][question]')
             q_answer = form.get(f'questions[{index}][answer]')
-            q_proj_id = form.get(f'questions[{index}][project_id]')
 
             if q_question is None:
-                break  # no more questions
+                break
 
-            if q_question_id:  # existing question
-                question = db.query(Question).filter_by(id=q_question_id, project_id=project.id).first()
+            if q_id:
+                question = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
                 if question:
                     question.question = q_question
                     question.answer = q_answer
-            else:  # new question
-                new_q = Question(
+            else:
+                new_question = Question(
                     question=q_question,
                     answer=q_answer,
                     project_id=project.id
                 )
-                db.add(new_q)
+                db.add(new_question)
 
             index += 1
 
@@ -213,16 +212,26 @@ async def save_project_button(request: Request, db: Session = Depends(get_db)):
         return JSONResponse(status_code=200, content={"message": "Saved successfully!"})
 
     except HTTPException as e:
-        raise e  # Let FastAPI handle HTTPExceptions as-is
-
+        raise e
     except Exception as e:
-        # Log the error, then return a 500 response
         print(f"Error while saving project: {e}")
-        return JSONResponse(status_code=500, content={"error": "An unexpected error occurred."})
+        return JSONResponse(status_code=500, content={"error": "Unexpected error occurred"})
 
 @app.get("/add_question", response_class=HTMLResponse)
-async def add_question(request: Request, index: int = 0, db: Session = Depends(get_db)):
-    project = get_current_project(db)
+async def add_question(
+    request: Request,
+    index: int = 0,
+    project_id: int = None,
+    db: Session = Depends(get_db)
+):
+    if project_id is None:
+        print("ERROR: Project ID is None")
+        project = get_current_project(db)
+    else:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            # Handle missing project, fallback or error
+            raise HTTPException(status_code=404, detail="Project not found")
 
     new_question = Question(question="", answer="", project_id=project.id)
     db.add(new_question)
@@ -234,6 +243,28 @@ async def add_question(request: Request, index: int = 0, db: Session = Depends(g
         {"request": request, "question": new_question, "index": index}
     )
 
+
+@app.post("/delete_question/{question_id}", response_class=HTMLResponse)
+async def delete_question(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):
+    question = db.query(Question).filter(
+        Question.id == question_id,
+        Question.project_id == project_id
+    ).first()
+
+    if question:
+        db.delete(question)
+        db.commit()
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    projects = get_all_projects(db)
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": project,
+            "projects": projects
+        }
+    )
 
 #Project methods
 @app.get("/Jinja-debug/", response_class=HTMLResponse)
