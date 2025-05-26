@@ -243,6 +243,34 @@ async def add_question(
         {"request": request, "question": new_question, "index": index}
     )
 
+@app.post("/regenerate_answer/{question_id}", response_class=HTMLResponse)
+async def regenerate_answer(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):
+    form = await request.form()
+    print(form)
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
+    projects = get_all_projects(db)
+
+
+    model = int(form.get("model"))
+
+    if model == 1:
+        llm = Claude.Claude()
+    else:
+        print("Something went wrong")
+
+    llm.set_source_text(project.source_text)
+    question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+    db.commit()
+
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": project,
+            "projects": projects
+        })
 
 @app.post("/delete_question/{question_id}", response_class=HTMLResponse)
 async def delete_question(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):

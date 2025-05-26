@@ -167,6 +167,15 @@
                                     hx-confirm="Are you sure you want to delete this question?">
                                     Delete
                                 </button>
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-primary btn-sm"
+                                    hx-post="/regenerate_answer/{{ question.id }}?project_id={{ question.project_id }}"
+                                    hx-target="#main_content"
+                                    hx-swap="outerHTML"
+                                    hx-confirm="Are you sure you want to regenerate the answer?">
+                                    + Regenerate
+                                </button>
                             </div>
                         </div>
                         </div>
