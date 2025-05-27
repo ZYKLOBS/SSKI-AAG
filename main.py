@@ -3,7 +3,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-
 from starlette.middleware.sessions import SessionMiddleware
 
 from databaseHelper.utility import engine, get_db
@@ -15,6 +14,7 @@ from models.question import *
 from databaseHelper.llm_insert import llm_names
 import Ollama
 import Claude
+from anthropic import AuthenticationError
 
 app = FastAPI()
 
@@ -91,77 +91,92 @@ class ProjectData(BaseModel):
 
 
 #TODO There is a bug, if you add a new question/answer pair and then press save, then the values are not saved
-
 @app.post("/generate-answers/")
 async def generate_answers(
         request: Request,
         db: Session = Depends(get_db)
 ):
-    global current_id
-
+    error_message = None
     form = await request.form()
     print("Form data:", form)  # Debugging line
 
-    project = get_current_project(db)
+    #First Save project
+    project_id = form.get("project_id")
+    if not project_id:
+        return JSONResponse(status_code=400, content={"error": "Missing project_id"})
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return JSONResponse(status_code=404, content={"error": "Project not found"})
+
+    # --- Save form data first ---
     project.source_text = form.get('source_text')
     project.prompt_template = form.get('prompt_template')
     project.api_key = form.get('api_key')
-    projects = get_all_projects(db)
-    model = form.get("model")
 
-    #TODO make this part choosing the model here dynamic
-    if int(model) == 1:
-        llm = Claude.Claude()
-
-    else:
-        print("Something went wrong")
-
-    # Update questions
     index = 0
-    questions = db.query(Question).filter(Question.project_id == current_id).all()
-
-    llm.set_source_text(project.source_text)
-
-    for question in questions:
-        print(f"Question ID: {question.id},  Question: {question.question}, Answer: {question.answer}, Project_id: {question.project_id}, Model: {model}")
-
     while True:
-        print(f"loop {index}")
-        q_question_id = form.get(f'questions[{index}][id]')
+        q_id = form.get(f'questions[{index}][id]')
         q_question = form.get(f'questions[{index}][question]')
         q_answer = form.get(f'questions[{index}][answer]')
-        q_proj_id = form.get(f'questions[{index}][project_id]')
-        print(f"\tq_id: {q_question_id}\n\tq_question: {q_question}\n\tq_answer: {q_answer}\n\tq_proj_id: {q_proj_id}")
-        if q_question_id is None:
-            break  # no more questions
-        question = db.query(Question).filter_by(id=q_question_id, project_id=project.id).first()
-        if question:
-            question.question = q_question
-            print(f"Question to generate answer from: {q_question}")
-            question.answer = llm.invoke(q_question, project.prompt_template, project.api_key)
-            print(f"Generated answer: {question.answer}")
 
+        if q_question is None:
+            break
+
+        if q_id:
+            question = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
+            if question:
+                question.question = q_question
+                question.answer = q_answer
+        else:
+            new_question = Question(
+                question=q_question,
+                answer=q_answer,
+                project_id=project.id
+            )
+            db.add(new_question)
         index += 1
 
     db.commit()
 
-    project = get_current_project(db)
-    # Print the updated questions for debugging
-    print("\nUpdated Project Questions:")
-    for question in project.questions:
-        print(
-            f"Question ID: {question.id}, Question: {question.question}, Answer: {question.answer}, Project ID: {question.project_id}")
+    #Generate
+    model = form.get("model")
 
-    print(project.questions)
+    # TODO: make dynamic model choice here
+    if int(model) == 1:
+        llm = Claude.Claude()
+    else:
+        print("Something went wrong")
+        return JSONResponse(status_code=400, content={"error": "Invalid model selected"})
+
+    llm.set_source_text(project.source_text)
+
+    questions = db.query(Question).filter(Question.project_id == project.id).all()
+
+    for question in questions:
+        try:
+            print(f"Generating answer for question: {question.question}")
+            question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+            print(f"Generated answer: {question.answer}")
+        except AuthenticationError as e:
+            print(f"API key authentication failed: {e}")
+            question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+            error_message = "Invalid API key. Please check it and try again."
+
+    db.commit()
+
+    projects = get_all_projects(db)
 
     return templates.TemplateResponse(
         "main_template.html",
         {
             "request": request,
             "project": project,
-            "projects": projects
+            "projects": projects,
+            "error_message": error_message
         }
     )
+
 
 
 
@@ -251,7 +266,7 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
     project = db.query(Project).filter(Project.id == project_id).first()
     question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
     projects = get_all_projects(db)
-
+    error_message = None
 
     model = int(form.get("model"))
 
@@ -261,7 +276,12 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
         print("Something went wrong")
 
     llm.set_source_text(project.source_text)
-    question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+    try:
+        question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+    except AuthenticationError as e:
+        print(f"API key authentication failed: {e}")
+        question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+        error_message = "Invalid API key. Please check it and try again."
     db.commit()
 
     return templates.TemplateResponse(
@@ -269,7 +289,8 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
         {
             "request": request,
             "project": project,
-            "projects": projects
+            "projects": projects,
+            "error_message": error_message
         })
 
 @app.post("/delete_question/{question_id}", response_class=HTMLResponse)

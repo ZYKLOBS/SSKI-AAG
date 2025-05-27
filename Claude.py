@@ -30,7 +30,7 @@ class Claude:
         self.max_tokens = max_tokens
         self.client = anthropic.Anthropic(api_key="No Value")
     def __send_message(self, question: str, prompt_template: str) -> str:
-        system = (f"You are an AI assistant that answers questions based on the provided source text and a prompt_template given by the user. "
+        system = (f"You are an AI assistant that answers questions based on the provided source text and a prompt_template given by the user. If the prompt_template is 'Default' you can ignore it."
                   f"Your responses should be accurate, concise, and directly relevant to the question. "
                   f"Use only the information in the source text to answer.\n\n"
                   f"Source Text:\n{self.source_text}\n\n"
