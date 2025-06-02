@@ -67,4 +67,5 @@ QOL:
 import/export -> TODO (Ganz simpel fragen Antwort paare in einer Excel Datei)
 Ollama Reintegration -> TODO (schadet nicht eine lokale Option zu haben, z.B. bei sensiblen Daten)
 Word limit -> TODO (limit der woerter pro Frage, koennte man aber auch manuell in prompt template eingeben, also hier dein Feedback)
-reprompt note -> Ist immernoch nebulös für mich, würde dass dann quasi als extra prompt template für den regenerate button einfügen (Feedback?)
+Word Counter -> [done]
+reprompt note -> [done]

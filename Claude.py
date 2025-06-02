@@ -50,6 +50,31 @@ class Claude:
         )
         print(f"message: {message.content[0].text}")
         return message.content[0].text
+
+    def __refine(self, question: str, refine_prompt:str, previous_answer: str, prompt_template: str) -> str:
+        system = (f"You are an AI assistant that answers questions based on the provided source text and a prompt_template given by the user. If the prompt_template is 'Default' you can ignore it."
+                  f"Your responses should be accurate, concise, and directly relevant to the question. "
+                  f"You have been instructed to refine your previous answer according to the refine instructions, please do so. Use only the information in the source text to answer. \n\n"
+                  f"Source Text:\n{self.source_text}\n\n"
+                  f"Prompt Template:\n{prompt_template}\n\n"
+                  f"Refine Instructions:\n{refine_prompt}\n\n"
+                  f"Question:\n{question}\n\n"
+                  f"Previous Answer:\n{previous_answer}\n\n"
+                  f"Answer:")
+        message: TextBlock = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            system=system,
+            messages=[
+                {
+                    'role' : 'user', 'content' : [{"type": "text", "text":question}]
+                }
+            ]
+        )
+        print(f"message: {message.content[0].text}")
+        return message.content[0].text
+
     def send_message_debug(self, question: str) -> str:
         print("Source Text:\n" + self.source_text + '\n' + '-'*50)
         return 'This is the answer to the question'
@@ -60,3 +85,7 @@ class Claude:
     def invoke(self, user_prompt: str, prompt_template: str, api_key: str) -> str:
         self.client = anthropic.Anthropic(api_key=api_key)
         return self.__send_message(question=user_prompt, prompt_template=prompt_template)
+
+    def refine(self, user_prompt: str, prompt_template: str, refine_prompt:str, previous_answer: str, api_key: str) -> str:
+        self.client = anthropic.Anthropic(api_key=api_key)
+        return self.__refine(question=user_prompt,refine_prompt=refine_prompt, previous_answer=previous_answer, prompt_template=prompt_template)

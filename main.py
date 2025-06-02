@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Request, Form, HTTPException
+from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -292,6 +292,70 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
             "projects": projects,
             "error_message": error_message
         })
+
+@app.post("/refine_answer/{question_id}", response_class=HTMLResponse)
+async def refine_answer(
+    request: Request,
+    question_id: int,
+    project_id: int = Query(...),
+    refine_prompt: str = Query(None),
+    db: Session = Depends(get_db)
+):
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+
+    # Fallback: Get refine_prompt from form if not passed via query
+    if not refine_prompt:
+        refine_prompt = form.get("refine_prompt", "")
+
+    # Fallback: get model from form if needed (or set a default)
+    try:
+        model = int(form.get("model", 1))  # default to 1 if not provided
+    except (ValueError, TypeError):
+        model = 1
+
+    print(f"Refine prompt: {refine_prompt}")
+    print(f"Model: {model}")
+
+    # Fetch DB records
+    project = db.query(Project).filter(Project.id == project_id).first()
+    question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
+    projects = get_all_projects(db)
+    error_message = None
+
+    if model == 1:
+        llm = Claude.Claude()
+    else:
+        print("Something went wrong with model selection")
+
+    llm.set_source_text(project.source_text)
+
+    try:
+        question.answer = llm.refine(
+            user_prompt=question.question,
+            refine_prompt=refine_prompt,
+            previous_answer=question.answer,
+            prompt_template=project.prompt_template,
+            api_key=project.api_key
+        )
+    except AuthenticationError as e:
+        print(f"API key authentication failed: {e}")
+        question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+        error_message = "Invalid API key. Please check it and try again."
+
+    db.commit()
+
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": project,
+            "projects": projects,
+            "error_message": error_message
+        }
+    )
 
 @app.post("/delete_question/{question_id}", response_class=HTMLResponse)
 async def delete_question(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):
