@@ -65,7 +65,10 @@ QOL:
 
 
 import/export -> TODO (Ganz simpel fragen Antwort paare in einer Excel Datei)
+-> import feature to one button
+-> actually implement import
+-> actually implement export
 Ollama Reintegration -> TODO (schadet nicht eine lokale Option zu haben, z.B. bei sensiblen Daten)
-Word limit -> TODO (limit der woerter pro Frage, koennte man aber auch manuell in prompt template eingeben, also hier dein Feedback)
-Word Counter -> [done] * find bugs
-reprompt note -> [done] * find bugs
+Word limit -> [canceled use prompt template and if necessary refine feature]
+Word Counter -> [done]
+reprompt note -> [done]

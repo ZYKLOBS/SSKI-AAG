@@ -81,8 +81,21 @@
                             hx-confirm="Are you sure you want to delete this project?">
                         Delete
                     </button>
+                    <input id="file-upload" type="file" name="file" accept=".xls,.xlsx" />
 
-                    <button type="button" class="btn btn-info">Import</button>
+                    <button
+                        type="button"
+                        hx-post="/upload_excel"
+                        hx-trigger="click"
+                        hx-target="#upload-result"
+                        hx-encoding="multipart/form-data"
+                        hx-include="#file-upload"
+                        class="btn btn-primary"
+                    >
+                        Import
+                    </button>
+
+                    <div id="upload-result"></div>
                     <button type="button" class="btn btn-info">Export</button>
 
                     <button id="save-button" type="button" class="btn btn-success">

@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query
+from io import BytesIO
+
+from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -10,6 +12,9 @@ from databaseHelper.llm_insert import insert_llms
 from models.llm import *
 from models.project import *
 from models.question import *
+
+import pandas as pd
+
 
 from databaseHelper.llm_insert import llm_names
 import Ollama
@@ -88,6 +93,13 @@ class ProjectData(BaseModel):
     prompt_template: str
     api_key: str
 
+
+@app.post("/upload_excel")
+async def upload_excel(file: UploadFile = File(...)):
+    contents = await file.read()
+    df = pd.read_excel(BytesIO(contents))
+    print(df)
+    return {"filename": file.filename, "rows": len(df)}
 
 
 #TODO There is a bug, if you add a new question/answer pair and then press save, then the values are not saved
