@@ -176,26 +176,16 @@
                                 </small>
                             </div>
                         </div>
-
                             <script>
-                        function updateWordCount(questionId) {
-                            const textarea = document.getElementById(`answer-${questionId}`);
-                            const wordCountEl = document.getElementById(`word-count-${questionId}`);
-                            const text = textarea.value.trim();
-
-                            // Count words: split by spaces, filter out empty strings
-                            const words = text.split(/\s+/).filter(word => word.length > 0);
-                            wordCountEl.textContent = words.length;
-                        }
-
-                        // Optional: initialize counters on page load
-                        document.addEventListener("DOMContentLoaded", function() {
-                            document.querySelectorAll("textarea[id^='answer-']").forEach(textarea => {
-                                const id = textarea.id.split("-")[1];
-                                updateWordCount(id);
-                            });
+                            document.addEventListener("htmx:afterSwap", function(event) {
+                        // Recalculate word counts for all textareas after HTMX swaps content
+                        document.querySelectorAll("textarea[id^='answer-']").forEach(textarea => {
+                            const id = textarea.id.split("-")[1];
+                            updateWordCount(id);
                         });
-                        </script>
+                    });
+                    </script>
+
 
 
                             <div class="col-6">
@@ -234,20 +224,7 @@
                                             🔧 Refine
                                         </button>
                                     </div>
-                                    <script>
-                                        function refineWithPrompt(questionId, projectId) {
-                                            const input = document.getElementById(`refine_prompt_${questionId}`);
-                                            const prompt = encodeURIComponent(input.value);
 
-                                            htmx.ajax('POST', `/refine_answer/${questionId}?project_id=${projectId}&refine_prompt=${prompt}`, {
-                                                target: '#main_content',
-                                                swap: 'outerHTML',
-                                                headers: {
-                                                    'HX-Confirm': 'Are you sure you want to refine the answer? This will regenerate the answer.'
-                                                }
-                                            });
-                                        }
-                                        </script>
 
                             </div>
                         </div>
@@ -261,25 +238,6 @@
                        <button type="button" class="btn btn-success btn-lg" onclick="addQuestion()">+</button>
                         <input type="hidden" id="question-index" value="{{ project.questions|length }}">
 
-                        <script>
-                       function addQuestion() {
-                        let indexEl = document.getElementById("question-index");
-                        let currentIndex = parseInt(indexEl.value);
-
-                        // Get current project id from the select dropdown
-                        let projectSelect = document.getElementById("projectSelect");
-                        let projectId = projectSelect.value;
-
-                        // Send request with both index and project_id
-                        htmx.ajax('GET', `/add_question?index=${currentIndex}&project_id=${projectId}`, {
-                            target: '#questions-container',
-                            swap: 'beforeend'
-                        });
-
-                        indexEl.value = currentIndex + 1;
-                    }
-
-                        </script>
 
                         <button id="generate-answers-button" type="button" class="btn btn-primary ms-3"
                                 hx-post="/generate-answers/"
@@ -307,6 +265,63 @@
     </div>
   </div>
 </div>
+
+ <script>
+                       function addQuestion() {
+                        let indexEl = document.getElementById("question-index");
+                        let currentIndex = parseInt(indexEl.value);
+
+                        // Get current project id from the select dropdown
+                        let projectSelect = document.getElementById("projectSelect");
+                        let projectId = projectSelect.value;
+
+                        // Send request with both index and project_id
+                        htmx.ajax('GET', `/add_question?index=${currentIndex}&project_id=${projectId}`, {
+                            target: '#questions-container',
+                            swap: 'beforeend'
+                        });
+
+                        indexEl.value = currentIndex + 1;
+                    }
+
+                        </script>
+
+<script>
+                                        function refineWithPrompt(questionId, projectId) {
+                                            const input = document.getElementById(`refine_prompt_${questionId}`);
+                                            const prompt = encodeURIComponent(input.value);
+
+                                            htmx.ajax('POST', `/refine_answer/${questionId}?project_id=${projectId}&refine_prompt=${prompt}`, {
+                                                target: '#main_content',
+                                                swap: 'outerHTML',
+                                                headers: {
+                                                    'HX-Confirm': 'Are you sure you want to refine the answer? This will regenerate the answer.'
+                                                }
+                                            });
+                                        }
+</script>
+
+  <script>
+                        function updateWordCount(questionId) {
+                            const textarea = document.getElementById(`answer-${questionId}`);
+                            const wordCountEl = document.getElementById(`word-count-${questionId}`);
+                            const text = textarea.value.trim();
+
+                            // Count words: split by spaces, filter out empty strings
+                            const words = text.split(/\s+/).filter(word => word.length > 0);
+                            wordCountEl.textContent = words.length;
+                        }
+
+                        // Optional: initialize counters on page load
+                        document.addEventListener("DOMContentLoaded", function() {
+                            document.querySelectorAll("textarea[id^='answer-']").forEach(textarea => {
+                                const id = textarea.id.split("-")[1];
+                                updateWordCount(id);
+                            });
+                        });
+  </script>
+
+
 
 <script>
     let loadingModal = null;
