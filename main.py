@@ -1,9 +1,14 @@
 from io import BytesIO
+import io
 
 from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import StreamingResponse
+from langchain.chains.summarize.refine_prompts import prompt_template
+from numpy.f2py.crackfortran import sourcecodeform
+
 
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -95,14 +100,108 @@ class ProjectData(BaseModel):
 
 
 @app.post("/upload_excel")
-async def upload_excel(file: UploadFile = File(...)):
+async def upload_excel(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    #For structure of import/export file see Excel_template.xlsx in the Github Repo
     contents = await file.read()
-    df = pd.read_excel(BytesIO(contents))
-    print(df)
-    return {"filename": file.filename, "rows": len(df)}
+
+    # Don't treat the first row as headers
+    df = pd.read_excel(BytesIO(contents), header=None)
+
+    # Rename columns to something meaningful
+    df.columns = ['Meta','question', 'answer']  # or 'source_text', 'prompt', etc.
+
+    df_A = df['Meta']
+    df_B = df['question']
+    df_C = df['answer']
 
 
-#TODO There is a bug, if you add a new question/answer pair and then press save, then the values are not saved
+
+    if pd.isna(df_A.iloc[0]) or str(df_A.iloc[0]).strip() == "":
+        return JSONResponse(status_code=500, content={"error": "Project name can not be empty"})
+
+    db_project = Project(
+        name=df_A[0],
+        source_text=df_A[1],
+        llm_id=1,
+        api_key="",
+        prompt_template=df_A[2],
+        default_max_words=100
+    )
+    db.add(db_project)
+    db.commit()
+    db.refresh(db_project)
+
+    print(f"DB PROJECT ID: {db_project.id}")
+
+
+    for question, answer in zip(df_B, df_C):
+        print([question, answer])
+        db_question = Question(
+            question=question,
+            answer=answer,
+            project_id=db_project.id
+        )
+        db.add(db_question)
+
+    db.commit()
+    projects = get_all_projects(db)
+
+    return templates.TemplateResponse(
+        "main_template.html",
+        {
+            "request": request,
+            "project": db_project,
+            "projects": projects
+        }
+    )
+
+@app.get("/export_excel")
+def export_excel(request: Request, db: Session = Depends(get_db)):
+    current_project = get_current_project(db)
+    if not current_project:
+        return JSONResponse(status_code=404, content={"error": "No current project selected"})
+
+    questions = db.query(Question).filter(Question.project_id == current_project.id).all()
+
+    # Prepare columns
+    col_a = [
+        current_project.name,          # Row 1, Col A
+        current_project.source_text,   # Row 2, Col A
+        current_project.prompt_template  # Row 3, Col A
+    ]
+
+    # Pad col_a with empty strings for rows beyond 3
+    extra_rows = max(0, len(questions) - 3)
+    col_a.extend([""] * extra_rows)
+
+    # Prepare columns B and C from questions
+    col_b = [q.question for q in questions]
+    col_c = [q.answer for q in questions]
+
+    # Build dataframe with these three columns
+    df = pd.DataFrame({
+        'A': col_a,
+        'B': col_b,
+        'C': col_c,
+    })
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, header=False)
+    output.seek(0)
+
+    filename = f"{current_project.name}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
+    )
+
+
+
 @app.post("/generate-answers/")
 async def generate_answers(
         request: Request,
