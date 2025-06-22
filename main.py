@@ -253,9 +253,37 @@ async def generate_answers(
     #Generate
     model = form.get("model")
 
-    # TODO: make dynamic model choice here
     if int(model) == 1:
         llm = Claude.Claude()
+        llm.set_source_text(project.source_text)
+
+        questions = db.query(Question).filter(Question.project_id == project.id).all()
+
+        for question in questions:
+            try:
+                print(f"Generating answer for question: {question.question}")
+                question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+                print(f"Generated answer: {question.answer}")
+            except AuthenticationError as e:
+                print(f"API key authentication failed: {e}")
+                question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+                error_message = "Invalid API key. Please check it and try again."
+
+    elif int(model) == 2:
+        llm = Ollama.Ollama()
+        llm.set_source_text(project.source_text)
+
+        questions = db.query(Question).filter(Question.project_id == project.id).all()
+
+        for question in questions:
+            try:
+                print(f"Generating answer for question: {question.question}")
+                question.answer = llm.invoke(question.question, project.prompt_template)
+                print(f"Generated answer: {question.answer}")
+            except AuthenticationError as e:
+                print(f"API key authentication failed: {e}")
+                question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+                error_message = "Invalid API key. Please check it and try again."
     else:
         print("Something went wrong")
         return JSONResponse(status_code=400, content={"error": "Invalid model selected"})
@@ -269,10 +297,8 @@ async def generate_answers(
             print(f"Generating answer for question: {question.question}")
             question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
             print(f"Generated answer: {question.answer}")
-        except AuthenticationError as e:
-            print(f"API key authentication failed: {e}")
-            question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-            error_message = "Invalid API key. Please check it and try again."
+        except:
+            print("Something went wrong")
 
     db.commit()
 
