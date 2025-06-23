@@ -3,9 +3,9 @@ Some debug Source Texts chosen by yours truly,  ̶s̶o̶ ̶s̶l̶i̶g̶h̶t̶l̶
 1:
 
 sauce1:
-Touhou Koumakyou ~ the Embodiment of Scarlet Devil (東方紅魔郷　～ the Embodiment of Scarlet Devil) is a vertical-scrolling danmaku shoot 'em up, and is the sixth official game in the Touhou Project by Team Shanghai Alice. It is the first to be released specifically for the Windows operating system.
-
 prompt template: Answer in <= 100 words and end each sentence with goboo
+
+Touhou Koumakyou ~ the Embodiment of Scarlet Devil (東方紅魔郷　～ the Embodiment of Scarlet Devil) is a vertical-scrolling danmaku shoot 'em up, and is the sixth official game in the Touhou Project by Team Shanghai Alice. It is the first to be released specifically for the Windows operating system.
 Gameplay:
 The Embodiment of Scarlet Devil's gameplay holds various fundamental similarities to that of the PC-98 titles and "Seihou",
  but differs in the introduction of Spell Cards. The pacing has also been changed significantly, but retains some of the PC-98 titles'
@@ -124,6 +124,9 @@ question 3:
 Ist die Zeche heutzutage noch in Betrieb?
 
 TODO ->
-pressing delete on the second question you just created will delete the first one as well
-Delete button for projects is also funky, deletes wrong project -> create A, Create B, delete B -> deletes A???
+pressing delete on the second question you just created will delete the first one -> save before
+FIXED -> Delete button for projects is also funky, deletes wrong project -> create A, Create B, delete B -> deletes A???
+Pressing delete before saving has weird behaviour? resets text content? Maybe make it so that the delete question button saves
+than deletes or that you cant delete?
 Mehr user feedback -> i.e. bei delete von leerer DB auch erwaehnen das grade kein projekt ausgewählt ist
+Check behaviour of buttons when no project selected/created

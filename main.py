@@ -6,7 +6,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import StreamingResponse
-from langchain.chains.summarize.refine_prompts import prompt_template
 from numpy.f2py.crackfortran import sourcecodeform
 
 
@@ -525,6 +524,7 @@ def get_jinja_body_debug(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/projects-create-button/")
 def create_project_button(request: Request, name: str = Form(...), db: Session = Depends(get_db)):
+    global current_id
     if not name.strip():
         return {"error": "Project name cannot be empty"}
 
@@ -541,6 +541,8 @@ def create_project_button(request: Request, name: str = Form(...), db: Session =
     db.commit()
     db.refresh(db_project)
     projects = get_all_projects(db)
+
+    current_id = db_project.id
 
     return templates.TemplateResponse(
         "main_template.html",
