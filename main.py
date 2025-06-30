@@ -653,8 +653,9 @@ async def refine_answer(
             }
         )
 
-
+    llm.set_source_text(project.source_text)
     print(f"Refine prompt: {refine_prompt_used}")
+
     try:
         question.answer = llm.refine(
             user_prompt=question.question,
