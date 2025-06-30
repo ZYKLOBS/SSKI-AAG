@@ -124,9 +124,4 @@ question 3:
 Ist die Zeche heutzutage noch in Betrieb?
 
 TODO ->
-pressing delete on the second question you just created will delete the first one -> save before
-FIXED -> Delete button for projects is also funky, deletes wrong project -> create A, Create B, delete B -> deletes A???
-Pressing delete before saving has weird behaviour? resets text content? Maybe make it so that the delete question button saves
-than deletes or that you cant delete?
 Mehr user feedback -> i.e. bei delete von leerer DB auch erwaehnen das grade kein projekt ausgewählt ist
-Check behaviour of buttons when no project selected/created

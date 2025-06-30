@@ -394,30 +394,162 @@ async def add_question(
         {"request": request, "question": new_question, "index": index}
     )
 
+@app.post("/delete_question/{question_id}", response_class=HTMLResponse)
+async def delete_question(
+    request: Request,
+    question_id: int,
+    project_id: int,
+    db: Session = Depends(get_db)
+):
+    try:
+        form = await request.form()
+        print("Form data:", form)
+
+        # Load project
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Save project fields
+        project.source_text = form.get('source_text')
+        project.prompt_template = form.get('prompt_template')
+        project.api_key = form.get('api_key')
+
+        # Save question updates (excluding the one to be deleted)
+        index = 0
+        while True:
+            q_id = form.get(f'questions[{index}][id]')
+            q_question = form.get(f'questions[{index}][question]')
+            q_answer = form.get(f'questions[{index}][answer]')
+
+            if q_question is None:
+                break
+
+            if str(q_id) != str(question_id):  # skip the one being deleted
+                if q_id:
+                    question = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
+                    if question:
+                        question.question = q_question
+                        question.answer = q_answer
+                else:
+                    new_question = Question(
+                        question=q_question,
+                        answer=q_answer,
+                        project_id=project.id
+                    )
+                    db.add(new_question)
+
+            index += 1
+
+        # Now delete the question
+        to_delete = db.query(Question).filter(
+            Question.id == question_id,
+            Question.project_id == project_id
+        ).first()
+        if to_delete:
+            db.delete(to_delete)
+
+        db.commit()
+
+        # Reload data for rendering
+        projects = get_all_projects(db)
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "questions": project.questions
+            }
+        )
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error during delete/save: {e}")
+        return JSONResponse(status_code=500, content={"error": "Unexpected error occurred"})
+
 @app.post("/regenerate_answer/{question_id}", response_class=HTMLResponse)
 async def regenerate_answer(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):
     form = await request.form()
-    print(form)
+    print("Regenerate Form:", form)
 
+    # --- Save project like in /save-project-button/ ---
     project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project.source_text = form.get('source_text')
+    project.prompt_template = form.get('prompt_template')
+    project.api_key = form.get('api_key')
+
+    index = 0
+    while True:
+        q_id = form.get(f'questions[{index}][id]')
+        q_question = form.get(f'questions[{index}][question]')
+        q_answer = form.get(f'questions[{index}][answer]')
+
+        if q_question is None:
+            break
+
+        if q_id:
+            question = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
+            if question:
+                question.question = q_question
+                question.answer = q_answer
+        else:
+            new_question = Question(
+                question=q_question,
+                answer=q_answer,
+                project_id=project.id
+            )
+            db.add(new_question)
+        index += 1
+
+    db.commit()
+
+    # --- Reload question to get updated message ---
     question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
     projects = get_all_projects(db)
     error_message = None
 
-    model = int(form.get("model"))
+    if not question or not question.question.strip():
+        error_message = "Can't regenerate answer: message is empty."
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "error_message": error_message
+            }
+        )
 
+    # --- Model selection ---
+    model = int(form.get("model", 0))
     if model == 1:
         llm = Claude.Claude()
     else:
-        print("Something went wrong")
+        error_message = "Invalid model selected."
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "error_message": error_message
+            }
+        )
 
+    # --- Call LLM ---
     llm.set_source_text(project.source_text)
     try:
         question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
     except AuthenticationError as e:
         print(f"API key authentication failed: {e}")
         question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-        error_message = "Invalid API key. Please check it and try again."
+        error_message = "Invalid API key. Please check it and try again. Did you save the project after entering it?"
+
     db.commit()
 
     return templates.TemplateResponse(
@@ -427,54 +559,109 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
             "project": project,
             "projects": projects,
             "error_message": error_message
-        })
+        }
+    )
 
 @app.post("/refine_answer/{question_id}", response_class=HTMLResponse)
 async def refine_answer(
     request: Request,
     question_id: int,
     project_id: int = Query(...),
-    refine_prompt: str = Query(None),
     db: Session = Depends(get_db)
 ):
-    try:
-        form = await request.form()
-    except Exception:
-        form = {}
+    form = await request.form()
+    print("Refine Form:", form)
 
-    # Fallback: Get refine_prompt from form if not passed via query
-    if not refine_prompt:
-        refine_prompt = form.get("refine_prompt", "")
-
-    # Fallback: get model from form if needed (or set a default)
-    try:
-        model = int(form.get("model", 1))  # default to 1 if not provided
-    except (ValueError, TypeError):
-        model = 1
-
-    print(f"Refine prompt: {refine_prompt}")
-    print(f"Model: {model}")
-
-    # Fetch DB records
+    # Save project data
     project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project.source_text = form.get('source_text')
+    project.prompt_template = form.get('prompt_template')
+    project.api_key = form.get('api_key')
+    api_key_copy = project.api_key
+
+    refine_prompts = form.getlist("refine_prompt")  # get all refine prompts as a list
+
+    index = 0
+    refine_prompt_used = ""
+
+    while True:
+        q_id = form.get(f'questions[{index}][id]')
+        q_question = form.get(f'questions[{index}][question]')
+        q_answer = form.get(f'questions[{index}][answer]')
+
+        if q_question is None:
+            break
+
+        if q_id:
+            question_obj = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
+            if question_obj:
+                question_obj.question = q_question
+                question_obj.answer = q_answer
+            # If this question matches the one to refine, get its refine prompt by index
+            if int(q_id) == question_id and index < len(refine_prompts):
+                refine_prompt_used = refine_prompts[index].strip()
+        else:
+            new_question = Question(
+                question=q_question,
+                answer=q_answer,
+                project_id=project.id
+            )
+            db.add(new_question)
+
+        index += 1
+
+    db.commit()
+
+    # ✅ Reload question AFTER saving updates
     question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
     projects = get_all_projects(db)
     error_message = None
 
+    # ✅ Check updated content now
+    if not question or not question.question.strip() or not question.answer.strip():
+        error_message = "Can't refine: Question or previous answer is empty."
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "error_message": error_message
+            }
+        )
+
+    # Model selection
+    try:
+        model = int(form.get("model", 1))
+    except (ValueError, TypeError):
+        model = 1
+
     if model == 1:
         llm = Claude.Claude()
     else:
-        print("Something went wrong with model selection")
+        error_message = "Invalid model selected."
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "error_message": error_message
+            }
+        )
 
-    llm.set_source_text(project.source_text)
 
+    print(f"Refine prompt: {refine_prompt_used}")
     try:
         question.answer = llm.refine(
             user_prompt=question.question,
-            refine_prompt=refine_prompt,
+            refine_prompt=refine_prompt_used,
             previous_answer=question.answer,
             prompt_template=project.prompt_template,
-            api_key=project.api_key
+            api_key=api_key_copy
         )
     except AuthenticationError as e:
         print(f"API key authentication failed: {e}")
@@ -490,28 +677,6 @@ async def refine_answer(
             "project": project,
             "projects": projects,
             "error_message": error_message
-        }
-    )
-
-@app.post("/delete_question/{question_id}", response_class=HTMLResponse)
-async def delete_question(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):
-    question = db.query(Question).filter(
-        Question.id == question_id,
-        Question.project_id == project_id
-    ).first()
-
-    if question:
-        db.delete(question)
-        db.commit()
-
-    project = db.query(Project).filter(Project.id == project_id).first()
-    projects = get_all_projects(db)
-    return templates.TemplateResponse(
-        "main_template.html",
-        {
-            "request": request,
-            "project": project,
-            "projects": projects
         }
     )
 
