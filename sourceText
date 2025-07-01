@@ -125,5 +125,3 @@ Ist die Zeche heutzutage noch in Betrieb?
 
 TODO ->
 Mehr user feedback -> i.e. bei delete/rename von leerer DB auch erwaehnen das grade kein projekt ausgewählt ist
-Feedback wenn man ein Projekt gleich nennt
-Regenerate + EMPTY api key does not give an error message

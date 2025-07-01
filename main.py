@@ -8,6 +8,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import StreamingResponse
 from numpy.f2py.crackfortran import sourcecodeform
 
+from sqlalchemy.exc import IntegrityError
+
 
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -97,52 +99,69 @@ class ProjectData(BaseModel):
     prompt_template: str
     api_key: str
 
-
 @app.post("/upload_excel")
-async def upload_excel(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    #For structure of import/export file see Excel_template.xlsx in the Github Repo
-    contents = await file.read()
+async def upload_excel(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    error_message = None
+    db_project = None
 
-    # Don't treat the first row as headers
-    df = pd.read_excel(BytesIO(contents), header=None)
+    if file is None or file.filename == "":
+        error_message = "No file was uploaded."
+    else:
+        try:
+            contents = await file.read()
+            df = pd.read_excel(BytesIO(contents), header=None)
 
-    # Rename columns to something meaningful
-    df.columns = ['Meta','question', 'answer']  # or 'source_text', 'prompt', etc.
+            # Expecting: meta, question, answer
+            df.columns = ['Meta', 'question', 'answer']
 
-    df_A = df['Meta']
-    df_B = df['question']
-    df_C = df['answer']
+            df_A = df['Meta']
+            df_B = df['question']
+            df_C = df['answer']
 
+            # Check project name
+            if pd.isna(df_A.iloc[0]) or str(df_A.iloc[0]).strip() == "":
+                error_message = "Project name cannot be empty."
+            else:
+                # Create project
+                db_project = Project(
+                    name=str(df_A[0]).strip(),
+                    source_text=str(df_A[1]) if len(df_A) > 1 else "",
+                    llm_id=1,
+                    api_key="",
+                    prompt_template=str(df_A[2]) if len(df_A) > 2 else "Default",
+                    default_max_words=100
+                )
+                try:
+                    db.add(db_project)
+                    db.commit()
+                    db.refresh(db_project)
+                except IntegrityError:
+                    db.rollback()
+                    error_message = "A project with this name already exists."
+                    db_project = get_current_project(db)
 
+                # Insert questions if no error so far
+                if error_message is None:
+                    for question, answer in zip(df_B, df_C):
+                        if pd.isna(question):
+                            continue
+                        db_question = Question(
+                            question=str(question).strip(),
+                            answer=str(answer).strip() if not pd.isna(answer) else "",
+                            project_id=db_project.id
+                        )
+                        db.add(db_question)
+                    db.commit()
 
-    if pd.isna(df_A.iloc[0]) or str(df_A.iloc[0]).strip() == "":
-        return JSONResponse(status_code=500, content={"error": "Project name can not be empty"})
+        except Exception as e:
+            # Only catch unexpected errors now
+            error_message = f"Failed to read Excel file: {str(e)}"
 
-    db_project = Project(
-        name=df_A[0],
-        source_text=df_A[1],
-        llm_id=1,
-        api_key="",
-        prompt_template=df_A[2],
-        default_max_words=100
-    )
-    db.add(db_project)
-    db.commit()
-    db.refresh(db_project)
-
-    print(f"DB PROJECT ID: {db_project.id}")
-
-
-    for question, answer in zip(df_B, df_C):
-        print([question, answer])
-        db_question = Question(
-            question=question,
-            answer=answer,
-            project_id=db_project.id
-        )
-        db.add(db_question)
-
-    db.commit()
+    db_project = db_project or get_current_project(db)
     projects = get_all_projects(db)
 
     return templates.TemplateResponse(
@@ -150,7 +169,8 @@ async def upload_excel(request: Request, file: UploadFile = File(...), db: Sessi
         {
             "request": request,
             "project": db_project,
-            "projects": projects
+            "projects": projects,
+            "error_message": error_message
         }
     )
 
@@ -162,22 +182,30 @@ def export_excel(request: Request, db: Session = Depends(get_db)):
 
     questions = db.query(Question).filter(Question.project_id == current_project.id).all()
 
-    # Prepare columns
+    # Prepare column A with project meta info
     col_a = [
-        current_project.name,          # Row 1, Col A
-        current_project.source_text,   # Row 2, Col A
-        current_project.prompt_template  # Row 3, Col A
+        current_project.name,
+        current_project.source_text,
+        current_project.prompt_template,
     ]
 
-    # Pad col_a with empty strings for rows beyond 3
-    extra_rows = max(0, len(questions) - 3)
-    col_a.extend([""] * extra_rows)
+    num_questions = len(questions)
+    # Pad col_a to have length at least equal to number of questions
+    if num_questions > 3:
+        col_a.extend([""] * (num_questions - 3))
 
     # Prepare columns B and C from questions
     col_b = [q.question for q in questions]
     col_c = [q.answer for q in questions]
 
-    # Build dataframe with these three columns
+    # Pad col_b and col_c if needed (e.g. if fewer than 3 questions)
+    min_len = max(len(col_a), len(col_b), len(col_c))
+    if len(col_b) < min_len:
+        col_b.extend([""] * (min_len - len(col_b)))
+    if len(col_c) < min_len:
+        col_c.extend([""] * (min_len - len(col_c)))
+
+    # Now all columns are same length, create dataframe
     df = pd.DataFrame({
         'A': col_a,
         'B': col_b,
@@ -200,17 +228,16 @@ def export_excel(request: Request, db: Session = Depends(get_db)):
     )
 
 
-
 @app.post("/generate-answers/")
 async def generate_answers(
-        request: Request,
-        db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db)
 ):
     error_message = None
     form = await request.form()
     print("Form data:", form)  # Debugging line
 
-    #First Save project
+    # First Save project
     project_id = form.get("project_id")
     if not project_id:
         return JSONResponse(status_code=400, content={"error": "Missing project_id"})
@@ -249,26 +276,32 @@ async def generate_answers(
 
     db.commit()
 
-    #Generate
     model = form.get("model")
+    if not model or not model.isdigit():
+        return JSONResponse(status_code=400, content={"error": "Invalid or missing model selected"})
 
-    if int(model) == 1:
-        llm = Claude.Claude()
-        llm.set_source_text(project.source_text)
+    model_int = int(model)
 
-        questions = db.query(Question).filter(Question.project_id == project.id).all()
+    # Check for empty API key if model requires it
+    if model_int == 1:
+        if not project.api_key or not project.api_key.strip():
+            error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+        else:
+            llm = Claude.Claude()
+            llm.set_source_text(project.source_text)
 
-        for question in questions:
-            try:
-                print(f"Generating answer for question: {question.question}")
-                question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
-                print(f"Generated answer: {question.answer}")
-            except AuthenticationError as e:
-                print(f"API key authentication failed: {e}")
-                question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-                error_message = "Invalid API key. Please check it and try again."
+            questions = db.query(Question).filter(Question.project_id == project.id).all()
 
-    elif int(model) == 2:
+            for question in questions:
+                try:
+                    print(f"Generating answer for question: {question.question}")
+                    question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+                    print(f"Generated answer: {question.answer}")
+                except AuthenticationError as e:
+                    print(f"API key authentication failed: {e}")
+                    question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+                    error_message = "Invalid API key. Please check it and try again."
+    elif model_int == 2:
         llm = Ollama.Ollama()
         llm.set_source_text(project.source_text)
 
@@ -284,20 +317,7 @@ async def generate_answers(
                 question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
                 error_message = "Invalid API key. Please check it and try again."
     else:
-        print("Something went wrong")
         return JSONResponse(status_code=400, content={"error": "Invalid model selected"})
-
-    llm.set_source_text(project.source_text)
-
-    questions = db.query(Question).filter(Question.project_id == project.id).all()
-
-    for question in questions:
-        try:
-            print(f"Generating answer for question: {question.question}")
-            question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
-            print(f"Generated answer: {question.answer}")
-        except:
-            print("Something went wrong")
 
     db.commit()
 
@@ -312,8 +332,6 @@ async def generate_answers(
             "error_message": error_message
         }
     )
-
-
 
 
 @app.post("/save-project-button/")
@@ -542,13 +560,17 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
         )
 
     # --- Call LLM ---
-    llm.set_source_text(project.source_text)
-    try:
-        question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
-    except AuthenticationError as e:
-        print(f"API key authentication failed: {e}")
-        question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-        error_message = "Invalid API key. Please check it and try again. Did you save the project after entering it?"
+    if not project.api_key or not project.api_key.strip():
+        error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+        question.answer = "[AUTHENTICATION ERROR: API key is empty]"
+    else:
+        llm.set_source_text(project.source_text)
+        try:
+            question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+        except AuthenticationError as e:
+            print(f"API key authentication failed: {e}")
+            question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+            error_message = "Invalid API key. Please check it and try again. Did you save the project after entering it?"
 
     db.commit()
 
@@ -615,14 +637,27 @@ async def refine_answer(
 
     db.commit()
 
-    # ✅ Reload question AFTER saving updates
+    # Reload question AFTER saving updates
     question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
     projects = get_all_projects(db)
     error_message = None
 
-    # ✅ Check updated content now
+    # Check for empty question or answer
     if not question or not question.question.strip() or not question.answer.strip():
         error_message = "Can't refine: Question or previous answer is empty."
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "error_message": error_message
+            }
+        )
+
+    # **NEW API KEY EMPTY CHECK**
+    if not project.api_key or not project.api_key.strip():
+        error_message = "API key cannot be empty. Please enter a valid API key and save the project."
         return templates.TemplateResponse(
             "main_template.html",
             {
@@ -662,7 +697,7 @@ async def refine_answer(
             refine_prompt=refine_prompt_used,
             previous_answer=question.answer,
             prompt_template=project.prompt_template,
-            api_key=api_key_copy
+            api_key=project.api_key
         )
     except AuthenticationError as e:
         print(f"API key authentication failed: {e}")
@@ -680,21 +715,31 @@ async def refine_answer(
             "error_message": error_message
         }
     )
-
 #Project methods
 @app.get("/Jinja-debug/", response_class=HTMLResponse)
 def get_jinja_body_debug(request: Request, db: Session = Depends(get_db)):
     current_project = get_current_project(db)
     return templates.TemplateResponse("main_template.html", {"request": request, "project": current_project})
 
-
 @app.post("/projects-create-button/")
-def create_project_button(request: Request, name: str = Form(...), db: Session = Depends(get_db)):
+def create_project_button(request: Request, name: Optional[str] = Form(""), db: Session = Depends(get_db)):
     global current_id
-    if not name.strip():
-        return {"error": "Project name cannot be empty"}
 
-    # Create new project
+    error_message = None
+    db_project = None  #
+
+    if not name.strip():
+        projects = get_all_projects(db)
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "error_message": "Project name cannot be empty.",
+                "projects": projects,
+                "project": get_current_project(db)
+            }
+        )
+
     db_project = Project(
         name=name,
         source_text="sauce",
@@ -703,47 +748,69 @@ def create_project_button(request: Request, name: str = Form(...), db: Session =
         prompt_template="Default",
         default_max_words=100
     )
-    db.add(db_project)
-    db.commit()
-    db.refresh(db_project)
+
+    try:
+        db.add(db_project)
+        db.commit()
+        db.refresh(db_project)
+        current_id = db_project.id
+    except IntegrityError:
+        db.rollback()
+        error_message = "duplicate project name."
+        db_project = get_current_project(db)
+
     projects = get_all_projects(db)
-
-    current_id = db_project.id
-
     return templates.TemplateResponse(
         "main_template.html",
         {
             "request": request,
             "project": db_project,
-            "projects": projects
+            "projects": projects,
+            "error_message": error_message
         }
     )
-
 @app.post("/projects-rename-button/")
-async def rename_project_button(request:Request, rename: str = Form(...), db: Session = Depends(get_db)):
+async def rename_project_button(
+    request: Request,
+    rename: Optional[str] = Form(""),
+    db: Session = Depends(get_db)
+):
     global current_id
-    form = await request.form()
-    print("Form data:", form)  # Debugging line
-
-    rename = form.get('rename')
+    error_message = None
 
     if not rename.strip():
-        return {"error": "Project name cannot be empty"}
+        projects = get_all_projects(db)
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "error_message": "Project name cannot be empty.",
+                "project": get_current_project(db),
+                "projects": projects
+            }
+        )
 
-    print(rename)
     db_project = get_current_project(db)
     if db_project is None:
-        return {"error": f"No project found with id {current_id}"}
-    db_project.name = rename if rename is not None else db_project.name
-    db.commit()
+        error_message = f"No project found with id {current_id}"
+    else:
+        db_project.name = rename
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            error_message = "Duplicate project name."
+
     db_project = get_current_project(db)
     projects = get_all_projects(db)
+
     return templates.TemplateResponse(
         "main_template.html",
         {
             "request": request,
             "project": db_project,
-            "projects": projects
+            "projects": projects,
+            "error_message": error_message
         }
     )
 
