@@ -127,5 +127,6 @@ TODO ->
 Mehr user feedback -> i.e. bei delete/rename von leerer DB auch erwaehnen das grade kein projekt ausgewählt ist
 
 (RE)Generate button [done]
-Bei regenerate/refine auch ladebalken
-Open AI integration [PRIO] [get key]
+Bei regenerate/refine auch ladebalken [done]
+Open AI integration [PRIO] [get key] -> waiting for key! Cant fix rn
+fix issue where questions appear after add question button [done]
