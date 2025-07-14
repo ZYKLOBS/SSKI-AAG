@@ -3,7 +3,7 @@ from databaseHelper.utility import SessionLocal
 
 #llm_names = ["ollama", "claude"]
 
-llm_names = ["claude", "ollama"]
+llm_names = ["claude", "openAI"]
 def insert_llms() -> None:
     """
     Insert predefined LLM names into the database if they do not already exist.

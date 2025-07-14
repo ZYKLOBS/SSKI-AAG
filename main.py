@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from starlette.middleware.sessions import SessionMiddleware
 
+import OpenAI
 from databaseHelper.utility import engine, get_db
 from databaseHelper.llm_insert import insert_llms
 from models.llm import *
@@ -302,7 +303,7 @@ async def generate_answers(
                     question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
                     error_message = "Invalid API key. Please check it and try again."
     elif model_int == 2:
-        llm = Ollama.Ollama()
+        llm = OpenAI.OpenAIWrapper
         llm.set_source_text(project.source_text)
 
         questions = db.query(Question).filter(Question.project_id == project.id).all()
@@ -547,6 +548,8 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
     model = int(form.get("model", 0))
     if model == 1:
         llm = Claude.Claude()
+    elif model == 2:
+        llm = OpenAI.OpenAIWrapper()
     else:
         error_message = "Invalid model selected."
         return templates.TemplateResponse(
@@ -676,6 +679,8 @@ async def refine_answer(
 
     if model == 1:
         llm = Claude.Claude()
+    elif model == 2:
+        llm = OpenAI.OpenAIWrapper()
     else:
         error_message = "Invalid model selected."
         return templates.TemplateResponse(
