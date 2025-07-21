@@ -17,13 +17,14 @@ class OpenAIWrapper:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.source_text = source_text
-        self.client = OpenAI(api_key="NO_VALUE")  # Will be set in `invoke`
+        self.client = OpenAI(api_key="NO_VALUE")  # To be set in invoke/refine
 
     def __build_system_prompt(self, question: str, prompt_template: str) -> str:
         return (
-            f"You are an AI assistant that answers questions based on the provided source text and prompt template. "
-            f"If the prompt template is 'Default', you can ignore it. Be accurate, concise, and directly relevant. "
-            f"Use only the information in the source text.\n\n"
+            f"You are an AI assistant that answers questions based on the provided source text and a prompt_template given by the user. "
+            f"If the prompt_template is 'Default' you can ignore it. "
+            f"Your responses should be accurate, concise, and directly relevant to the question. "
+            f"Use only the information in the source text to answer.\n\n"
             f"Source Text:\n{self.source_text}\n\n"
             f"Prompt Template:\n{prompt_template}\n\n"
             f"Question:\n{question}\n\n"
@@ -32,9 +33,11 @@ class OpenAIWrapper:
 
     def __build_refine_system_prompt(self, question: str, prompt_template: str, refine_prompt: str, previous_answer: str) -> str:
         return (
-            f"You are an AI assistant that refines answers based on the source text and a prompt template. "
-            f"You have been instructed to refine your previous answer according to the refine instructions. "
-            f"Use only the source text.\n\n"
+            f"You are an AI assistant that answers questions based on the provided source text and a prompt_template given by the user. "
+            f"If the prompt_template is 'Default' you can ignore it. "
+            f"Your responses should be accurate, concise, and directly relevant to the question. "
+            f"You have been instructed to refine your previous answer according to the refine instructions, please do so. "
+            f"Use only the information in the source text to answer.\n\n"
             f"Source Text:\n{self.source_text}\n\n"
             f"Prompt Template:\n{prompt_template}\n\n"
             f"Refine Instructions:\n{refine_prompt}\n\n"
@@ -47,8 +50,8 @@ class OpenAIWrapper:
         system_prompt = self.__build_system_prompt(question, prompt_template)
         response = self.client.chat.completions.create(
             model=self.model,
-            temperature=self.temperature,
             max_tokens=self.max_tokens,
+            temperature=self.temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
@@ -62,8 +65,8 @@ class OpenAIWrapper:
         system_prompt = self.__build_refine_system_prompt(question, prompt_template, refine_prompt, previous_answer)
         response = self.client.chat.completions.create(
             model=self.model,
-            temperature=self.temperature,
             max_tokens=self.max_tokens,
+            temperature=self.temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}

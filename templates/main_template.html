@@ -296,7 +296,7 @@ function addQuestion() {
 
   htmx.ajax('GET', `/add_question?index=${currentIndex}&project_id=${projectId}`, {
     target: '#questions-container-add',
-    swap: 'afterbegin'  // <-- change this line to insert at the top
+    swap: 'beforeend'  // <-- change this line to insert at the top
   });
 
   indexEl.value = currentIndex + 1;

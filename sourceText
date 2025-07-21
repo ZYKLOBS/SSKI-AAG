@@ -124,9 +124,7 @@ question 3:
 Ist die Zeche heutzutage noch in Betrieb?
 
 TODO ->
-Mehr user feedback -> i.e. bei delete/rename von leerer DB auch erwaehnen das grade kein projekt ausgewählt ist
 
-(RE)Generate button [done]
-Bei regenerate/refine auch ladebalken [done]
-Open AI integration [PRIO] [get key] -> waiting for key! Cant fix rn
-fix issue where questions appear after add question button [done]
+Ollama Integration buggy [fixed]
+When adding question, make question add at the end [fixed]
+save current model that has been chosen, currently the model just switches after a generation, annoying [fixed]

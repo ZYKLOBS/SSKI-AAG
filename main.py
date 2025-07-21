@@ -67,6 +67,20 @@ def get_all_questions(db: Session):
 def get_llm_by_id(db: Session, llm_id: int):
     return db.query(LLM).filter(LLM.id == llm_id).first()
 
+@app.post("/set-model/")
+def set_model(
+    project_id: int = Form(...),
+    model: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return {"error": "Project not found"}
+
+    project.model = model  # Update the model column
+    db.commit()           # Commit to save changes
+
+    return {"message": "Model updated successfully"}
 
 # Serve homepage index file
 @app.get("/", response_class=HTMLResponse)
@@ -252,6 +266,7 @@ async def generate_answers(
     project.prompt_template = form.get('prompt_template')
     project.api_key = form.get('api_key')
 
+
     index = 0
     while True:
         q_id = form.get(f'questions[{index}][id]')
@@ -275,13 +290,15 @@ async def generate_answers(
             db.add(new_question)
         index += 1
 
-    db.commit()
-
     model = form.get("model")
     if not model or not model.isdigit():
         return JSONResponse(status_code=400, content={"error": "Invalid or missing model selected"})
+    project.llm_id = int(form.get('model'))
 
+    db.commit()
     model_int = int(model)
+
+    llm = None
 
     # Check for empty API key if model requires it
     if model_int == 1:
@@ -289,38 +306,48 @@ async def generate_answers(
             error_message = "API key cannot be empty. Please enter a valid API key and save the project."
         else:
             llm = Claude.Claude()
-            llm.set_source_text(project.source_text)
 
-            questions = db.query(Question).filter(Question.project_id == project.id).all()
-
-            for question in questions:
-                try:
-                    print(f"Generating answer for question: {question.question}")
-                    question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
-                    print(f"Generated answer: {question.answer}")
-                except AuthenticationError as e:
-                    print(f"API key authentication failed: {e}")
-                    question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-                    error_message = "Invalid API key. Please check it and try again."
     elif model_int == 2:
-        llm = OpenAI.OpenAIWrapper
-        llm.set_source_text(project.source_text)
+        if not project.api_key or not project.api_key.strip():
+            error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+        else:
+            llm = OpenAI.OpenAIWrapper()
+    elif model_int == 3:
+            llm = Ollama.OllamaWrapper()
+    else:
+        error_message = "Invalid model selected."
+        projects = get_all_projects(db)
+        return templates.TemplateResponse(
+            "main_template.html",
+            {
+                "request": request,
+                "project": project,
+                "projects": projects,
+                "error_message": error_message
+            }
+        )
 
-        questions = db.query(Question).filter(Question.project_id == project.id).all()
+    llm.set_source_text(project.source_text)
 
+    questions = db.query(Question).filter(Question.project_id == project.id).all()
+    try:
         for question in questions:
             try:
                 print(f"Generating answer for question: {question.question}")
-                question.answer = llm.invoke(question.question, project.prompt_template)
+                question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
                 print(f"Generated answer: {question.answer}")
             except AuthenticationError as e:
                 print(f"API key authentication failed: {e}")
                 question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
                 error_message = "Invalid API key. Please check it and try again."
-    else:
-        return JSONResponse(status_code=400, content={"error": "Invalid model selected"})
+            except:
+                question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+                error_message = "Invalid API key. Please check it and try again."
+        db.commit()
 
-    db.commit()
+
+    except:
+        error_message = "Invalid API key or Ollama server not running"
 
     projects = get_all_projects(db)
 
@@ -352,6 +379,8 @@ async def save_project_button(request: Request, db: Session = Depends(get_db)):
         project.source_text = form.get('source_text')
         project.prompt_template = form.get('prompt_template')
         project.api_key = form.get('api_key')
+        project.llm_id = int(form.get('model'))
+
 
         # Handle questions
         index = 0
@@ -546,10 +575,13 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
 
     # --- Model selection ---
     model = int(form.get("model", 0))
+    project.llm_id = int(form.get('model'))
     if model == 1:
         llm = Claude.Claude()
     elif model == 2:
         llm = OpenAI.OpenAIWrapper()
+    elif model == 3:
+        llm = Ollama.OllamaWrapper()
     else:
         error_message = "Invalid model selected."
         return templates.TemplateResponse(
@@ -574,6 +606,9 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
             print(f"API key authentication failed: {e}")
             question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
             error_message = "Invalid API key. Please check it and try again. Did you save the project after entering it?"
+        except:
+            question.answer = "[AUTHENTICATION ERROR: Invalid API key or Ollama not running]"
+            error_message = "Invalid API key or Ollama Server not running"
 
     db.commit()
 
@@ -674,6 +709,7 @@ async def refine_answer(
     # Model selection
     try:
         model = int(form.get("model", 1))
+        project.llm_id = int(form.get('model'))
     except (ValueError, TypeError):
         model = 1
 
@@ -681,6 +717,9 @@ async def refine_answer(
         llm = Claude.Claude()
     elif model == 2:
         llm = OpenAI.OpenAIWrapper()
+
+    elif model == 3:
+        llm = Ollama.OllamaWrapper()
     else:
         error_message = "Invalid model selected."
         return templates.TemplateResponse(
@@ -708,6 +747,9 @@ async def refine_answer(
         print(f"API key authentication failed: {e}")
         question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
         error_message = "Invalid API key. Please check it and try again."
+    except:
+        question.answer = "[AUTHENTICATION ERROR: Invalid API key or Ollama not running]"
+        error_message = "Invalid API key or Ollama Server not running"
 
     db.commit()
 
@@ -874,18 +916,25 @@ def read_llms(skip: int = 0, limit: int=100, db: Session = Depends(get_db)):
 
 #Htmx
 @app.get("/models-options/", response_class=HTMLResponse)
-def get_llms_options(skip: int = 0, limit: int=100, db: Session = Depends(get_db)):
-    """
-    :param skip: How many records to skip
-    :param limit: How many records to return at most
-    :param db:
-    :return:
-    """
+def get_llms_options(
+    project_id: int = Query(None),
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
     llms = db.query(LLM).offset(skip).limit(limit).all()
 
-    llm_html = "".join(
-        f'<option value="{llm.id}">{llm.name}</option>' for llm in llms
-    )
+    selected_model = None
+    if project_id:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            selected_model = project.llm_id  # or project.llm.id if llm is loaded
+
+    llm_html = ""
+    for llm in llms:
+        selected_attr = " selected" if llm.id == selected_model else ""
+        llm_html += f'<option value="{llm.id}"{selected_attr}>{llm.name}</option>'
+
     return llm_html
 
 
