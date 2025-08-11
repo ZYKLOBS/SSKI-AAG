@@ -138,8 +138,7 @@
            <div class="col-auto align-self-right" > API-Key </div>
           <!-- API Key -->
           <div class="col-auto align-self-center">
-              <input type="password" id="api-key" name="api_key" class="form-control" placeholder="API Key"
-                   value="{{ project.api_key if project else '' }}">
+              <input type="password" id="api-key" name="api_key" class="form-control" placeholder="API Key" value="">
           </div>
         </div>
 
@@ -360,6 +359,55 @@ function addQuestion() {
       }, { once: true });
     }
   });
+
+
+  (function() {
+    const apiKeyInputId = 'api-key';
+    let savedApiKey = '';
+
+    // Save current api key before content swap
+    document.body.addEventListener('htmx:beforeSwap', (event) => {
+      // Only care if #main_content is being replaced
+      if (event.detail.target.id === 'main_content') {
+        const input = document.getElementById(apiKeyInputId);
+        if (input) {
+          savedApiKey = input.value;
+          // Also save to sessionStorage in case of full reload
+          sessionStorage.setItem('api_key', savedApiKey);
+        }
+      }
+    });
+
+    // Restore api key after content swap
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.detail.target.id === 'main_content') {
+        const input = document.getElementById(apiKeyInputId);
+        if (input) {
+          // Use savedApiKey or fallback to sessionStorage
+          input.value = savedApiKey || sessionStorage.getItem('api_key') || '';
+
+          // Attach input event to update savedApiKey live
+          input.addEventListener('input', (e) => {
+            savedApiKey = e.target.value;
+            sessionStorage.setItem('api_key', savedApiKey);
+          });
+        }
+      }
+    });
+
+    // On initial load, restore from sessionStorage
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById(apiKeyInputId);
+      if (input) {
+        savedApiKey = sessionStorage.getItem('api_key') || '';
+        input.value = savedApiKey;
+        input.addEventListener('input', (e) => {
+          savedApiKey = e.target.value;
+          sessionStorage.setItem('api_key', savedApiKey);
+        });
+      }
+    });
+  })();
 </script>
 
 </body>

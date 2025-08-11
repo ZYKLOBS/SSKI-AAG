@@ -242,7 +242,6 @@ def export_excel(request: Request, db: Session = Depends(get_db)):
         }
     )
 
-
 @app.post("/generate-answers/")
 async def generate_answers(
     request: Request,
@@ -250,9 +249,8 @@ async def generate_answers(
 ):
     error_message = None
     form = await request.form()
-    print("Form data:", form)  # Debugging line
 
-    # First Save project
+    # Get project_id
     project_id = form.get("project_id")
     if not project_id:
         return JSONResponse(status_code=400, content={"error": "Missing project_id"})
@@ -261,12 +259,14 @@ async def generate_answers(
     if not project:
         return JSONResponse(status_code=404, content={"error": "Project not found"})
 
-    # --- Save form data first ---
+    # Update project fields except api_key (don't save api_key)
     project.source_text = form.get('source_text')
     project.prompt_template = form.get('prompt_template')
-    project.api_key = form.get('api_key')
 
+    # Get API key transiently from form, do NOT save
+    api_key = form.get('api_key')
 
+    # Update or add questions
     index = 0
     while True:
         q_id = form.get(f'questions[{index}][id]')
@@ -293,27 +293,30 @@ async def generate_answers(
     model = form.get("model")
     if not model or not model.isdigit():
         return JSONResponse(status_code=400, content={"error": "Invalid or missing model selected"})
-    project.llm_id = int(form.get('model'))
+    project.llm_id = int(model)
 
     db.commit()
+
     model_int = int(model)
 
     llm = None
 
-    # Check for empty API key if model requires it
-    if model_int == 1:
-        if not project.api_key or not project.api_key.strip():
-            error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+    # Validate API key if model requires it
+    if model_int == 1:  # Claude
+        if not api_key or not api_key.strip():
+            error_message = "API key cannot be empty. Please enter a valid API key."
         else:
             llm = Claude.Claude()
 
-    elif model_int == 2:
-        if not project.api_key or not project.api_key.strip():
-            error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+    elif model_int == 2:  # OpenAI
+        if not api_key or not api_key.strip():
+            error_message = "API key cannot be empty. Please enter a valid API key."
         else:
             llm = OpenAI.OpenAIWrapper()
-    elif model_int == 3:
-            llm = Ollama.OllamaWrapper()
+
+    elif model_int == 3:  # Ollama (no API key needed)
+        llm = Ollama.OllamaWrapper()
+
     else:
         error_message = "Invalid model selected."
         projects = get_all_projects(db)
@@ -327,27 +330,23 @@ async def generate_answers(
             }
         )
 
-    llm.set_source_text(project.source_text)
+    if llm:
+        llm.set_source_text(project.source_text)
+        questions = db.query(Question).filter(Question.project_id == project.id).all()
 
-    questions = db.query(Question).filter(Question.project_id == project.id).all()
-    try:
-        for question in questions:
-            try:
-                print(f"Generating answer for question: {question.question}")
-                question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
-                print(f"Generated answer: {question.answer}")
-            except AuthenticationError as e:
-                print(f"API key authentication failed: {e}")
-                question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-                error_message = "Invalid API key. Please check it and try again."
-            except:
-                question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-                error_message = "Invalid API key. Please check it and try again."
-        db.commit()
-
-
-    except:
-        error_message = "Invalid API key or Ollama server not running"
+        try:
+            for question in questions:
+                try:
+                    question.answer = llm.invoke(question.question, project.prompt_template, api_key)
+                except AuthenticationError:
+                    question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
+                    error_message = "Invalid API key. Please check it and try again."
+                except Exception:
+                    question.answer = "[ERROR generating answer]"
+                    error_message = "Error generating answer. Please try again."
+            db.commit()
+        except Exception:
+            error_message = "Unexpected error during answer generation."
 
     projects = get_all_projects(db)
 
@@ -378,7 +377,8 @@ async def save_project_button(request: Request, db: Session = Depends(get_db)):
 
         project.source_text = form.get('source_text')
         project.prompt_template = form.get('prompt_template')
-        project.api_key = form.get('api_key')
+        #Dont save since we want each user to only have access to a key themselves
+        #project.api_key = form.get('api_key')
         project.llm_id = int(form.get('model'))
 
 
@@ -516,21 +516,22 @@ async def delete_question(
     except Exception as e:
         print(f"Error during delete/save: {e}")
         return JSONResponse(status_code=500, content={"error": "Unexpected error occurred"})
-
 @app.post("/regenerate_answer/{question_id}", response_class=HTMLResponse)
 async def regenerate_answer(request: Request, question_id: int, project_id: int, db: Session = Depends(get_db)):
     form = await request.form()
     print("Regenerate Form:", form)
 
-    # --- Save project like in /save-project-button/ ---
+    # Load project from DB
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # Update project fields EXCEPT api_key (do not save api_key to DB)
     project.source_text = form.get('source_text')
     project.prompt_template = form.get('prompt_template')
-    project.api_key = form.get('api_key')
+    # project.api_key = form.get('api_key')  # <-- REMOVE this line to prevent saving API key
 
+    # Update questions from form
     index = 0
     while True:
         q_id = form.get(f'questions[{index}][id]')
@@ -541,10 +542,10 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
             break
 
         if q_id:
-            question = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
-            if question:
-                question.question = q_question
-                question.answer = q_answer
+            question_db = db.query(Question).filter_by(id=q_id, project_id=project.id).first()
+            if question_db:
+                question_db.question = q_question
+                question_db.answer = q_answer
         else:
             new_question = Question(
                 question=q_question,
@@ -556,26 +557,32 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
 
     db.commit()
 
-    # --- Reload question to get updated message ---
+    # Reload question from DB to get latest
     question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
     projects = get_all_projects(db)
     error_message = None
 
     if not question or not question.question.strip():
-        error_message = "Can't regenerate answer: message is empty."
+        error_message = "Can't regenerate answer: question is empty."
         return templates.TemplateResponse(
             "main_template.html",
             {
                 "request": request,
                 "project": project,
                 "projects": projects,
-                "error_message": error_message
+                "error_message": error_message,
             }
         )
 
-    # --- Model selection ---
-    model = int(form.get("model", 0))
-    project.llm_id = int(form.get('model'))
+    # Select model
+    model_str = form.get("model", "0")
+    try:
+        model = int(model_str)
+    except ValueError:
+        model = 0
+
+    project.llm_id = model
+
     if model == 1:
         llm = Claude.Claude()
     elif model == 2:
@@ -590,63 +597,72 @@ async def regenerate_answer(request: Request, question_id: int, project_id: int,
                 "request": request,
                 "project": project,
                 "projects": projects,
-                "error_message": error_message
+                "error_message": error_message,
             }
         )
 
-    # --- Call LLM ---
-    if not project.api_key or not project.api_key.strip():
-        error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+    # Use API key dynamically from form, do NOT save it to DB or send it back
+    api_key = form.get("api_key", "").strip()
+    if not api_key:
+        error_message = "API key cannot be empty. Please enter a valid API key."
         question.answer = "[AUTHENTICATION ERROR: API key is empty]"
     else:
         llm.set_source_text(project.source_text)
         try:
-            question.answer = llm.invoke(question.question, project.prompt_template, project.api_key)
+            question.answer = llm.invoke(question.question, project.prompt_template, api_key)
         except AuthenticationError as e:
             print(f"API key authentication failed: {e}")
             question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
-            error_message = "Invalid API key. Please check it and try again. Did you save the project after entering it?"
-        except:
+            error_message = "Invalid API key. Please check it and try again."
+        except Exception:
             question.answer = "[AUTHENTICATION ERROR: Invalid API key or Ollama not running]"
-            error_message = "Invalid API key or Ollama Server not running"
+            error_message = "Invalid API key or Ollama server not running."
 
     db.commit()
 
+    # Render template WITHOUT passing the API key back
     return templates.TemplateResponse(
         "main_template.html",
         {
             "request": request,
             "project": project,
             "projects": projects,
-            "error_message": error_message
+            "error_message": error_message,
         }
     )
 
+
 @app.post("/refine_answer/{question_id}", response_class=HTMLResponse)
 async def refine_answer(
-    request: Request,
-    question_id: int,
-    project_id: int = Query(...),
-    db: Session = Depends(get_db)
+        request: Request,
+        question_id: int,
+        project_id: int = Query(...),
+        db: Session = Depends(get_db)
 ):
     form = await request.form()
     print("Refine Form:", form)
 
-    # Save project data
+    # Load project from DB
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # Update project fields EXCEPT api_key (do NOT save api_key)
     project.source_text = form.get('source_text')
     project.prompt_template = form.get('prompt_template')
-    project.api_key = form.get('api_key')
-    api_key_copy = project.api_key
+    # Do NOT save api_key to DB
+    # project.api_key = form.get('api_key')
 
-    refine_prompts = form.getlist("refine_prompt")  # get all refine prompts as a list
+    # Get API key from form only for LLM call
+    api_key = form.get('api_key', '').strip()
+
+    # Collect refine prompts (list)
+    refine_prompts = form.getlist("refine_prompt")
 
     index = 0
     refine_prompt_used = ""
 
+    # Update questions from form
     while True:
         q_id = form.get(f'questions[{index}][id]')
         q_question = form.get(f'questions[{index}][question]')
@@ -660,7 +676,7 @@ async def refine_answer(
             if question_obj:
                 question_obj.question = q_question
                 question_obj.answer = q_answer
-            # If this question matches the one to refine, get its refine prompt by index
+            # Match question to refine and get corresponding refine prompt by index
             if int(q_id) == question_id and index < len(refine_prompts):
                 refine_prompt_used = refine_prompts[index].strip()
         else:
@@ -675,12 +691,12 @@ async def refine_answer(
 
     db.commit()
 
-    # Reload question AFTER saving updates
+    # Reload question from DB to get latest
     question = db.query(Question).filter_by(id=question_id, project_id=project_id).first()
     projects = get_all_projects(db)
     error_message = None
 
-    # Check for empty question or answer
+    # Validate question and previous answer
     if not question or not question.question.strip() or not question.answer.strip():
         error_message = "Can't refine: Question or previous answer is empty."
         return templates.TemplateResponse(
@@ -689,27 +705,27 @@ async def refine_answer(
                 "request": request,
                 "project": project,
                 "projects": projects,
-                "error_message": error_message
+                "error_message": error_message,
             }
         )
 
-    # **NEW API KEY EMPTY CHECK**
-    if not project.api_key or not project.api_key.strip():
-        error_message = "API key cannot be empty. Please enter a valid API key and save the project."
+    # Check API key presence (do NOT save it)
+    if not api_key:
+        error_message = "API key cannot be empty. Please enter a valid API key."
         return templates.TemplateResponse(
             "main_template.html",
             {
                 "request": request,
                 "project": project,
                 "projects": projects,
-                "error_message": error_message
+                "error_message": error_message,
             }
         )
 
-    # Model selection
+    # Model selection, fallback to 1 if invalid
     try:
         model = int(form.get("model", 1))
-        project.llm_id = int(form.get('model'))
+        project.llm_id = model
     except (ValueError, TypeError):
         model = 1
 
@@ -717,7 +733,6 @@ async def refine_answer(
         llm = Claude.Claude()
     elif model == 2:
         llm = OpenAI.OpenAIWrapper()
-
     elif model == 3:
         llm = Ollama.OllamaWrapper()
     else:
@@ -728,40 +743,44 @@ async def refine_answer(
                 "request": request,
                 "project": project,
                 "projects": projects,
-                "error_message": error_message
+                "error_message": error_message,
             }
         )
 
     llm.set_source_text(project.source_text)
-    print(f"Refine prompt: {refine_prompt_used}")
+    print(f"Refine prompt used: {refine_prompt_used}")
 
+    # Call LLM refine with API key from form only
     try:
         question.answer = llm.refine(
             user_prompt=question.question,
             refine_prompt=refine_prompt_used,
             previous_answer=question.answer,
             prompt_template=project.prompt_template,
-            api_key=project.api_key
+            api_key=api_key
         )
     except AuthenticationError as e:
         print(f"API key authentication failed: {e}")
         question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
         error_message = "Invalid API key. Please check it and try again."
-    except:
+    except Exception:
         question.answer = "[AUTHENTICATION ERROR: Invalid API key or Ollama not running]"
-        error_message = "Invalid API key or Ollama Server not running"
+        error_message = "Invalid API key or Ollama Server not running."
 
     db.commit()
 
+    # Render template WITHOUT api_key in context to keep frontend input persistent
     return templates.TemplateResponse(
         "main_template.html",
         {
             "request": request,
             "project": project,
             "projects": projects,
-            "error_message": error_message
+            "error_message": error_message,
         }
     )
+
+
 #Project methods
 @app.get("/Jinja-debug/", response_class=HTMLResponse)
 def get_jinja_body_debug(request: Request, db: Session = Depends(get_db)):
@@ -942,4 +961,5 @@ def get_llms_options(
 if __name__ == "__main__":
     insert_llms()
     import uvicorn
+    #Note on the server this should run on 0.0.0.0
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
