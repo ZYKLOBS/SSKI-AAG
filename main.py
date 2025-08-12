@@ -1,6 +1,8 @@
 from io import BytesIO
 import io
 
+import time
+
 from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -241,30 +243,33 @@ def export_excel(request: Request, db: Session = Depends(get_db)):
             "Content-Disposition": f"attachment; filename={filename}"
         }
     )
-
 @app.post("/generate-answers/")
-async def generate_answers(
-    request: Request,
-    db: Session = Depends(get_db)
-):
+async def generate_answers(request: Request, db: Session = Depends(get_db)):
+    start_time = time.perf_counter()
+    print(f"[DEBUG 0] Start /generate-answers at {start_time:.4f}")
+
     error_message = None
     form = await request.form()
+    print(f"[DEBUG 1] Received form in {time.perf_counter() - start_time:.4f}s")
 
     # Get project_id
     project_id = form.get("project_id")
     if not project_id:
+        print(f"[DEBUG] Missing project_id after {time.perf_counter() - start_time:.4f}s")
         return JSONResponse(status_code=400, content={"error": "Missing project_id"})
 
     project = db.query(Project).filter(Project.id == project_id).first()
+    print(f"[DEBUG 2] Queried project in {time.perf_counter() - start_time:.4f}s")
+
     if not project:
+        print(f"[DEBUG] Project not found in {time.perf_counter() - start_time:.4f}s")
         return JSONResponse(status_code=404, content={"error": "Project not found"})
 
-    # Update project fields except api_key (don't save api_key)
+    # Update project fields
     project.source_text = form.get('source_text')
     project.prompt_template = form.get('prompt_template')
-
-    # Get API key transiently from form, do NOT save
-    api_key = form.get('api_key')
+    api_key = form.get('api_key')  # transient use only
+    print(f"[DEBUG 3] Updated project fields in {time.perf_counter() - start_time:.4f}s")
 
     # Update or add questions
     index = 0
@@ -282,41 +287,37 @@ async def generate_answers(
                 question.question = q_question
                 question.answer = q_answer
         else:
-            new_question = Question(
-                question=q_question,
-                answer=q_answer,
-                project_id=project.id
-            )
-            db.add(new_question)
+            db.add(Question(question=q_question, answer=q_answer, project_id=project.id))
+
         index += 1
+
+    print(f"[DEBUG 4] Processed {index} questions in {time.perf_counter() - start_time:.4f}s")
 
     model = form.get("model")
     if not model or not model.isdigit():
+        print(f"[DEBUG] Invalid model after {time.perf_counter() - start_time:.4f}s")
         return JSONResponse(status_code=400, content={"error": "Invalid or missing model selected"})
     project.llm_id = int(model)
 
     db.commit()
+    print(f"[DEBUG 5] Saved basic project changes in {time.perf_counter() - start_time:.4f}s")
 
+    # Model selection
     model_int = int(model)
-
     llm = None
 
-    # Validate API key if model requires it
-    if model_int == 1:  # Claude
+    if model_int == 1:
         if not api_key or not api_key.strip():
             error_message = "API key cannot be empty. Please enter a valid API key."
         else:
             llm = Claude.Claude()
-
-    elif model_int == 2:  # OpenAI
+    elif model_int == 2:
         if not api_key or not api_key.strip():
             error_message = "API key cannot be empty. Please enter a valid API key."
         else:
             llm = OpenAI.OpenAIWrapper()
-
-    elif model_int == 3:  # Ollama (no API key needed)
+    elif model_int == 3:
         llm = Ollama.OllamaWrapper()
-
     else:
         error_message = "Invalid model selected."
         projects = get_all_projects(db)
@@ -330,25 +331,33 @@ async def generate_answers(
             }
         )
 
+    print(f"[DEBUG 6] Model selection done in {time.perf_counter() - start_time:.4f}s")
+
     if llm:
         llm.set_source_text(project.source_text)
         questions = db.query(Question).filter(Question.project_id == project.id).all()
+        print(f"[DEBUG 7] Loaded {len(questions)} questions in {time.perf_counter() - start_time:.4f}s")
 
         try:
-            for question in questions:
+            for idx, question in enumerate(questions, start=1):
                 try:
+                    t0 = time.perf_counter()
                     question.answer = llm.invoke(question.question, project.prompt_template, api_key)
+                    print(f"[DEBUG 8.{idx}] Answer generated in {time.perf_counter() - t0:.4f}s")
                 except AuthenticationError:
                     question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
                     error_message = "Invalid API key. Please check it and try again."
-                except Exception:
+                except Exception as e:
                     question.answer = "[ERROR generating answer]"
-                    error_message = "Error generating answer. Please try again."
+                    error_message = f"Error generating answer for Q{idx}: {e}"
             db.commit()
-        except Exception:
-            error_message = "Unexpected error during answer generation."
+            print(f"[DEBUG 9] All answers generated in {time.perf_counter() - start_time:.4f}s")
+        except Exception as e:
+            error_message = f"Unexpected error during answer generation: {e}"
 
     projects = get_all_projects(db)
+    total_time = time.perf_counter() - start_time
+    print(f"[DEBUG END] Request completed in {total_time:.4f}s")
 
     return templates.TemplateResponse(
         "main_template.html",
