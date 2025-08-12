@@ -337,32 +337,29 @@ function addQuestion() {
     });
   });
 
-
-  if (typeof window.loadingModal === "undefined") {
-    window.loadingModal = null;
-
-    document.body.addEventListener('htmx:beforeRequest', (evt) => {
-      if (evt.detail.elt && evt.detail.elt.id === 'generate-answers-button') {
-        const modalEl = document.getElementById('loadingModal');
-        if (modalEl) {
-          window.loadingModal = new bootstrap.Modal(modalEl);
-          window.loadingModal.show();
-        }
+  let loadingModal = null;
+  document.body.addEventListener('htmx:beforeRequest', (evt) => {
+    if (evt.detail.elt && evt.detail.elt.id === 'generate-answers-button') {
+      const modalEl = document.getElementById('loadingModal');
+      if (modalEl) {
+        loadingModal = new bootstrap.Modal(modalEl);
+        loadingModal.show();
       }
-    });
+    }
+  });
 
-    document.body.addEventListener('htmx:afterRequest', () => {
-      if (window.loadingModal) {
-        window.loadingModal.hide();
-        window.loadingModal._element.addEventListener('hidden.bs.modal', () => {
-          window.loadingModal.dispose();
-          window.loadingModal = null;
-          const backdrop = document.querySelector('.modal-backdrop');
-          if (backdrop) backdrop.remove();
-        }, { once: true });
-      }
-    });
-  }
+  document.body.addEventListener('htmx:afterRequest', () => {
+    if (loadingModal) {
+      loadingModal.hide();
+      loadingModal._element.addEventListener('hidden.bs.modal', () => {
+        loadingModal.dispose();
+        loadingModal = null;
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) backdrop.remove();
+      }, { once: true });
+    }
+  });
+
 
   (function() {
     const apiKeyInputId = 'api-key';
