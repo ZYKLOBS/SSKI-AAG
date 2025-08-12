@@ -246,30 +246,30 @@ def export_excel(request: Request, db: Session = Depends(get_db)):
 @app.post("/generate-answers/")
 async def generate_answers(request: Request, db: Session = Depends(get_db)):
     start_time = time.perf_counter()
-    print(f"[DEBUG 0] Start /generate-answers at {start_time:.4f}")
+    #print(f"[DEBUG 0] Start /generate-answers at {start_time:.4f}")
 
     error_message = None
     form = await request.form()
-    print(f"[DEBUG 1] Received form in {time.perf_counter() - start_time:.4f}s")
+    #print(f"[DEBUG 1] Received form in {time.perf_counter() - start_time:.4f}s")
 
     # Get project_id
     project_id = form.get("project_id")
     if not project_id:
-        print(f"[DEBUG] Missing project_id after {time.perf_counter() - start_time:.4f}s")
+       #print(f"[DEBUG] Missing project_id after {time.perf_counter() - start_time:.4f}s")
         return JSONResponse(status_code=400, content={"error": "Missing project_id"})
 
     project = db.query(Project).filter(Project.id == project_id).first()
-    print(f"[DEBUG 2] Queried project in {time.perf_counter() - start_time:.4f}s")
+    #print(f"[DEBUG 2] Queried project in {time.perf_counter() - start_time:.4f}s")
 
     if not project:
-        print(f"[DEBUG] Project not found in {time.perf_counter() - start_time:.4f}s")
+        #print(f"[DEBUG] Project not found in {time.perf_counter() - start_time:.4f}s")
         return JSONResponse(status_code=404, content={"error": "Project not found"})
 
     # Update project fields
     project.source_text = form.get('source_text')
     project.prompt_template = form.get('prompt_template')
     api_key = form.get('api_key')  # transient use only
-    print(f"[DEBUG 3] Updated project fields in {time.perf_counter() - start_time:.4f}s")
+    #print(f"[DEBUG 3] Updated project fields in {time.perf_counter() - start_time:.4f}s")
 
     # Update or add questions
     index = 0
@@ -291,16 +291,16 @@ async def generate_answers(request: Request, db: Session = Depends(get_db)):
 
         index += 1
 
-    print(f"[DEBUG 4] Processed {index} questions in {time.perf_counter() - start_time:.4f}s")
+    #print(f"[DEBUG 4] Processed {index} questions in {time.perf_counter() - start_time:.4f}s")
 
     model = form.get("model")
     if not model or not model.isdigit():
-        print(f"[DEBUG] Invalid model after {time.perf_counter() - start_time:.4f}s")
+        #print(f"[DEBUG] Invalid model after {time.perf_counter() - start_time:.4f}s")
         return JSONResponse(status_code=400, content={"error": "Invalid or missing model selected"})
     project.llm_id = int(model)
 
     db.commit()
-    print(f"[DEBUG 5] Saved basic project changes in {time.perf_counter() - start_time:.4f}s")
+    #print(f"[DEBUG 5] Saved basic project changes in {time.perf_counter() - start_time:.4f}s")
 
     # Model selection
     model_int = int(model)
@@ -331,19 +331,19 @@ async def generate_answers(request: Request, db: Session = Depends(get_db)):
             }
         )
 
-    print(f"[DEBUG 6] Model selection done in {time.perf_counter() - start_time:.4f}s")
+    #print(f"[DEBUG 6] Model selection done in {time.perf_counter() - start_time:.4f}s")
 
     if llm:
         llm.set_source_text(project.source_text)
         questions = db.query(Question).filter(Question.project_id == project.id).all()
-        print(f"[DEBUG 7] Loaded {len(questions)} questions in {time.perf_counter() - start_time:.4f}s")
+        #print(f"[DEBUG 7] Loaded {len(questions)} questions in {time.perf_counter() - start_time:.4f}s")
 
         try:
             for idx, question in enumerate(questions, start=1):
                 try:
                     t0 = time.perf_counter()
                     question.answer = llm.invoke(question.question, project.prompt_template, api_key)
-                    print(f"[DEBUG 8.{idx}] Answer generated in {time.perf_counter() - t0:.4f}s")
+                    #print(f"[DEBUG 8.{idx}] Answer generated in {time.perf_counter() - t0:.4f}s")
                 except AuthenticationError:
                     question.answer = "[AUTHENTICATION ERROR: Invalid API key]"
                     error_message = "Invalid API key. Please check it and try again."
@@ -351,13 +351,13 @@ async def generate_answers(request: Request, db: Session = Depends(get_db)):
                     question.answer = "[ERROR generating answer]"
                     error_message = f"Error generating answer for Q{idx}: {e}"
             db.commit()
-            print(f"[DEBUG 9] All answers generated in {time.perf_counter() - start_time:.4f}s")
+            #print(f"[DEBUG 9] All answers generated in {time.perf_counter() - start_time:.4f}s")
         except Exception as e:
             error_message = f"Unexpected error during answer generation: {e}"
 
     projects = get_all_projects(db)
     total_time = time.perf_counter() - start_time
-    print(f"[DEBUG END] Request completed in {total_time:.4f}s")
+    #print(f"[DEBUG END] Request completed in {total_time:.4f}s")
 
     return templates.TemplateResponse(
         "main_template.html",
